@@ -432,17 +432,7 @@ class TextReaderPage extends StatelessWidget {
         Text(heading, textAlign: TextAlign.center, style: titleStyle(context)),
         const SizedBox(height: 8),
         if (poem)
-          for (final l in body)
-            // كل سطر يمتد على العرض كاملاً: يبدأ وينتهي عند نفس الحافتين
-            SizedBox(
-              width: double.infinity,
-              child: Wrap(
-                alignment: WrapAlignment.spaceBetween,
-                textDirection: TextDirection.rtl,
-                spacing: 6 + cfg.wordSp,
-                children: [for (final w in l.split(RegExp(r'\s+'))) Text(w, style: bodyStyle(context))],
-              ),
-            )
+          PoemView(lines: body, cfg: cfg)
         else
           Text(body.join('\n'), textAlign: TextAlign.justify, style: bodyStyle(context)),
       ],
@@ -462,7 +452,7 @@ class TextReaderPage extends StatelessWidget {
           child: SingleChildScrollView(
             padding: const EdgeInsets.fromLTRB(14, 14, 14, 30),
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 16),
+              padding: EdgeInsets.symmetric(horizontal: poem ? 12 : 22, vertical: 16),
               decoration: BoxDecoration(
                 color: dark ? const Color(0x22FFFFFF) : const Color(0xB3FFFFFF),
                 borderRadius: BorderRadius.circular(20),
@@ -1537,5 +1527,81 @@ class _ClockSettingsPageState extends State<ClockSettingsPage> {
         ),
       ]),
     );
+  }
+}
+
+
+// القصيدة: شعر عمودي. كل بيت سطران: الصدر من اليمين، والعجز تحته مباشرة مزاحاً 8 مسافات.
+// كل شطر في سطر واحد دائماً بدون نزول، والخط يتصغر تلقائياً بقدر الحاجة ليناسب عرض الشاشة.
+class PoemView extends StatelessWidget {
+  final List<String> lines;
+  final FontCfg cfg;
+  const PoemView({super.key, required this.lines, required this.cfg});
+
+  static const String indent = '\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0'; // 8 مسافات
+
+  double _w(TextStyle st, String text) {
+    final tp = TextPainter(text: TextSpan(text: text, style: st), textDirection: TextDirection.rtl, maxLines: 1)..layout();
+    return tp.width;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bayts = <List<String>>[];
+    for (int i = 0; i < lines.length; i += 2) {
+      bayts.add([lines[i], i + 1 < lines.length ? lines[i + 1] : '']);
+    }
+    return LayoutBuilder(builder: (context, box) {
+      final avail = box.maxWidth - 2;
+      final base = bodyStyle(context);
+      final cands = <String>[];
+      for (final b in bayts) {
+        cands.add(b[0]);
+        if (b[1].isNotEmpty) cands.add(indent + b[1]);
+      }
+      // أعرض 6 أشطر عند الحجم المطلوب
+      final measured = [for (final c in cands) MapEntry(c, _w(base, c))]..sort((x, y) => y.value.compareTo(x.value));
+      final widest = measured.take(6).map((e) => e.key).toList();
+      double widestAt(double size) {
+        final st = base.copyWith(fontSize: size);
+        double m = 0;
+        for (final c in widest) {
+          final w = _w(st, c);
+          if (w > m) m = w;
+        }
+        return m;
+      }
+
+      double size = cfg.size;
+      if (widestAt(size) > avail) {
+        double lo = 8, hi = size;
+        for (int i = 0; i < 14; i++) {
+          final mid = (lo + hi) / 2;
+          if (widestAt(mid) <= avail) {
+            lo = mid;
+          } else {
+            hi = mid;
+          }
+        }
+        size = lo;
+      }
+      final st = base.copyWith(fontSize: size);
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (final b in bayts)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(b[0], style: st, maxLines: 1, softWrap: false, overflow: TextOverflow.visible),
+                  if (b[1].isNotEmpty) Text(indent + b[1], style: st, maxLines: 1, softWrap: false, overflow: TextOverflow.visible),
+                ],
+              ),
+            ),
+        ],
+      );
+    });
   }
 }
