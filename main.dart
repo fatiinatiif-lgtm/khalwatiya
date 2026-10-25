@@ -80,6 +80,53 @@ TextStyle titleStyle(BuildContext c) {
 
 final ValueNotifier<bool> darkMode = ValueNotifier<bool>(false);
 
+// ===== الساعة والتاريخ =====
+Duration timeOffset = Duration.zero; // فرق التعديل اليدوي عن ساعة الجهاز
+int hijriAdj = 0; // تعديل التاريخ الهجري بالأيام
+DateTime appNow() => DateTime.now().add(timeOffset);
+
+Future<void> saveClock(Duration off, int adj) async {
+  timeOffset = off;
+  hijriAdj = adj;
+  final p = await SharedPreferences.getInstance();
+  await p.setInt('clock_off_ms', off.inMilliseconds);
+  await p.setInt('hijri_adj', adj);
+}
+
+const List<String> weekdayNames = ['الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت', 'الأحد'];
+const List<String> gMonths = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
+const List<String> hMonths = ['محرم', 'صفر', 'ربيع الأول', 'ربيع الآخر', 'جمادى الأولى', 'جمادى الآخرة', 'رجب', 'شعبان', 'رمضان', 'شوال', 'ذو القعدة', 'ذو الحجة'];
+
+// تحويل ميلادي -> هجري (حساب جدولي، ويمكن ضبطه يدوياً بالأيام)
+List<int> toHijri(DateTime date) {
+  final d = DateTime(date.year, date.month, date.day).add(Duration(days: hijriAdj));
+  final y = d.year, m = d.month, day = d.day;
+  final a = (14 - m) ~/ 12;
+  final yy = y + 4800 - a;
+  final mm = m + 12 * a - 3;
+  final jdn = day + (153 * mm + 2) ~/ 5 + 365 * yy + yy ~/ 4 - yy ~/ 100 + yy ~/ 400 - 32045;
+  var l = jdn - 1948440 + 10632;
+  final n = (l - 1) ~/ 10631;
+  l = l - 10631 * n + 354;
+  final j = ((10985 - l) ~/ 5316) * ((50 * l) ~/ 17719) + (l ~/ 5670) * ((43 * l) ~/ 15238);
+  l = l - ((30 - j) ~/ 15) * ((17719 * j) ~/ 50) - (j ~/ 16) * ((15238 * j) ~/ 43) + 29;
+  final month = (24 * l) ~/ 709;
+  final dd = l - (709 * month) ~/ 24;
+  final year = 30 * n + j - 30;
+  return [year, month, dd];
+}
+
+String fmtTime(DateTime t) {
+  final h12 = t.hour % 12 == 0 ? 12 : t.hour % 12;
+  return '$h12:${t.minute.toString().padLeft(2, '0')}:${t.second.toString().padLeft(2, '0')} ${t.hour < 12 ? 'ص' : 'م'}';
+}
+
+String fmtGregorian(DateTime t) => '${weekdayNames[t.weekday - 1]} ${t.day} ${gMonths[t.month - 1]} ${t.year}م';
+String fmtHijri(DateTime t) {
+  final h = toHijri(t);
+  return '${h[2]} ${hMonths[(h[1] - 1).clamp(0, 11).toInt()]} ${h[0]}هـ';
+}
+
 Future<void> setDark(bool v) async {
   darkMode.value = v;
   final p = await SharedPreferences.getInstance();
@@ -92,6 +139,8 @@ Future<void> loadFavorites() async {
   final p = await SharedPreferences.getInstance();
   favorites.value = p.getStringList('favorites') ?? [];
   darkMode.value = p.getBool('dark') ?? false;
+  timeOffset = Duration(milliseconds: p.getInt('clock_off_ms') ?? 0);
+  hijriAdj = p.getInt('hijri_adj') ?? 0;
   fontCfg.value = FontCfg(
     size: p.getDouble('f_size') ?? 21,
     wordSp: p.getDouble('f_word') ?? 0,
@@ -265,23 +314,7 @@ class HomePage extends StatelessWidget {
           ],
         ),
         body: ListView(padding: const EdgeInsets.all(18), children: [
-          Container(
-            padding: const EdgeInsets.all(22),
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(colors: [deepGreen, green]),
-              borderRadius: BorderRadius.circular(24),
-              border: Border.all(color: gold),
-            ),
-            child: const Column(children: [
-              Icon(Icons.auto_awesome, color: Color(0xFFE6D19A), size: 42),
-              SizedBox(height: 12),
-              Text('هلموا إلى ذكر الله أيها المريدون',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 22, height: 1.8)),
-              SizedBox(height: 8),
-              Text('مكتبة الأوراد والأذكار', style: TextStyle(color: silver, fontSize: 16)),
-            ]),
-          ),
+          const ClockCard(),
           const SizedBox(height: 20),
           SectionCard(
             title: 'كتاب أوراد الطريقة',
@@ -779,6 +812,13 @@ class MorePage extends StatelessWidget {
             subtitle: const Text('الحجم والنوع واللون والتباعد والتشكيل'),
             trailing: const Icon(Icons.chevron_left, color: green),
             onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const FontSettingsPage())),
+          ),
+          ListTile(
+            leading: const Icon(Icons.access_time, color: green),
+            title: const Text('تعديل الساعة والتاريخ'),
+            subtitle: const Text('ضبط الوقت والتاريخ الميلادي والهجري يدوياً'),
+            trailing: const Icon(Icons.chevron_left, color: green),
+            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ClockSettingsPage())),
           ),
           const ListTile(leading: Icon(Icons.info_outline, color: green), title: Text('عن التطبيق'), subtitle: Text('الطريقة الخلوتية البكرية')),
           const ListTile(leading: Icon(Icons.offline_bolt, color: green), title: Text('يعمل دون إنترنت'), subtitle: Text('الكتاب والفهرس والنصوص محفوظة داخل التطبيق.')),
@@ -1351,4 +1391,151 @@ class _LogPageState extends State<LogPage> {
                     },
                   ),
       );
+}
+
+
+class ClockCard extends StatefulWidget {
+  const ClockCard({super.key});
+  @override
+  State<ClockCard> createState() => _ClockCardState();
+}
+
+class _ClockCardState extends State<ClockCard> {
+  Timer? timer;
+  @override
+  void initState() {
+    super.initState();
+    timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final t = appNow();
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 26),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(colors: [deepGreen, green]),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: gold),
+      ),
+      child: Column(children: [
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: Text(fmtTime(t), style: const TextStyle(color: Colors.white, fontSize: 44, fontWeight: FontWeight.bold)),
+        ),
+        const SizedBox(height: 12),
+        Text(fmtGregorian(t), textAlign: TextAlign.center, style: const TextStyle(color: silver, fontSize: 19, height: 1.6)),
+        const SizedBox(height: 4),
+        Text(fmtHijri(t), textAlign: TextAlign.center, style: const TextStyle(color: Color(0xFFE6D19A), fontSize: 19, fontWeight: FontWeight.w600, height: 1.6)),
+        if (timeOffset != Duration.zero)
+          const Padding(padding: EdgeInsets.only(top: 8), child: Text('الوقت معدّل يدوياً', style: TextStyle(color: Colors.white60, fontSize: 12))),
+      ]),
+    );
+  }
+}
+
+class ClockSettingsPage extends StatefulWidget {
+  const ClockSettingsPage({super.key});
+  @override
+  State<ClockSettingsPage> createState() => _ClockSettingsPageState();
+}
+
+class _ClockSettingsPageState extends State<ClockSettingsPage> {
+  Timer? timer;
+  @override
+  void initState() {
+    super.initState();
+    timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    timer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> pickDate() async {
+    final cur = appNow();
+    final d = await showDatePicker(context: context, initialDate: cur, firstDate: DateTime(2000), lastDate: DateTime(2100));
+    if (d == null) return;
+    final now = DateTime.now();
+    final target = DateTime(d.year, d.month, d.day, cur.hour, cur.minute, cur.second);
+    await saveClock(target.difference(now), hijriAdj);
+    setState(() {});
+  }
+
+  Future<void> pickTime() async {
+    final cur = appNow();
+    final tm = await showTimePicker(context: context, initialTime: TimeOfDay(hour: cur.hour, minute: cur.minute));
+    if (tm == null) return;
+    final now = DateTime.now();
+    final target = DateTime(cur.year, cur.month, cur.day, tm.hour, tm.minute, 0);
+    await saveClock(target.difference(now), hijriAdj);
+    setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final t = appNow();
+    return Scaffold(
+      appBar: AppBar(title: const Text('تعديل الساعة والتاريخ')),
+      body: ListView(padding: const EdgeInsets.all(16), children: [
+        const ClockCard(),
+        const SizedBox(height: 18),
+        FilledButton.icon(
+          style: FilledButton.styleFrom(backgroundColor: green, padding: const EdgeInsets.symmetric(vertical: 14)),
+          onPressed: pickTime,
+          icon: const Icon(Icons.access_time),
+          label: const Text('تعديل الساعة', style: TextStyle(fontSize: 17)),
+        ),
+        const SizedBox(height: 10),
+        FilledButton.icon(
+          style: FilledButton.styleFrom(backgroundColor: green, padding: const EdgeInsets.symmetric(vertical: 14)),
+          onPressed: pickDate,
+          icon: const Icon(Icons.calendar_month),
+          label: const Text('تعديل التاريخ الميلادي', style: TextStyle(fontSize: 17)),
+        ),
+        const SizedBox(height: 18),
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            border: Border.all(color: const Color(0x55C6A75E)),
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Column(children: [
+            Row(children: [
+              const Expanded(child: Text('تعديل التاريخ الهجري (بالأيام)', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600))),
+              IconButton.filledTonal(onPressed: () async { await saveClock(timeOffset, hijriAdj - 1); setState(() {}); }, icon: const Icon(Icons.remove)),
+              SizedBox(width: 44, child: Text(hijriAdj > 0 ? '+$hijriAdj' : '$hijriAdj', textAlign: TextAlign.center, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold))),
+              IconButton.filledTonal(onPressed: () async { await saveClock(timeOffset, hijriAdj + 1); setState(() {}); }, icon: const Icon(Icons.add)),
+            ]),
+            const SizedBox(height: 6),
+            Text('التاريخ الهجري الحالي: ${fmtHijri(t)}', style: const TextStyle(fontSize: 13)),
+            const SizedBox(height: 4),
+            const Text('الحساب تقريبي، وقد يختلف يوماً عن رؤية الهلال، فاضبطيه من هنا لو لزم.', textAlign: TextAlign.center, style: TextStyle(fontSize: 12, height: 1.6)),
+          ]),
+        ),
+        const SizedBox(height: 18),
+        OutlinedButton.icon(
+          onPressed: () async {
+            await saveClock(Duration.zero, 0);
+            setState(() {});
+          },
+          icon: const Icon(Icons.sync),
+          label: const Text('العودة للوقت التلقائي'),
+        ),
+      ]),
+    );
+  }
 }
