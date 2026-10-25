@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -425,6 +426,7 @@ class TextReaderPage extends StatelessWidget {
     final heading = lines.isNotEmpty ? lines.first : title;
     final body = lines.length > 1 ? lines.sublist(1) : <String>[];
     final dark = isDark(context);
+    if (!poem) return kashidaPage(context, title, heading, body, dark);
 
     final Widget content = Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1604,4 +1606,231 @@ class PoemView extends StatelessWidget {
       );
     });
   }
+}
+
+
+// ===================== ضبط النص العربي بالكشيدة =====================
+// بدل توسيع المسافات بين الكلمات، تُمَدّ الحروف القابلة للمد بحرف التطويل (ـ) فتستوي حافتا السطر.
+// الدوال هنا تعتمد على Flutter فقط (بدون مكتبات خارجية).
+const Set<int> _kashidaDual = {
+  0x0626, 0x0628, 0x062A, 0x062B, 0x062C, 0x062D, 0x062E, 0x0633, 0x0634, 0x0635, 0x0636,
+  0x0637, 0x0638, 0x0639, 0x063A, 0x0641, 0x0642, 0x0643, 0x0644, 0x0645, 0x0646, 0x0647, 0x064A,
+};
+bool _isMarkCu(int c) => (c >= 0x064B && c <= 0x065F) || c == 0x0670 || (c >= 0x06D6 && c <= 0x06ED);
+
+// مواضع الإدراج الممكنة: بعد حرف يتصل بما بعده (وبعد حركاته)، داخل الكلمة، مع استثناء لام-ألف ولفظ الجلالة.
+List<int> kashidaSlots(String s) {
+  final cu = s.codeUnits;
+  final n = cu.length;
+  final out = <int>[];
+  int i0 = 0;
+  while (i0 < n) {
+    while (i0 < n && cu[i0] == 0x20) {
+      i0++;
+    }
+    int i1 = i0;
+    while (i1 < n && cu[i1] != 0x20) {
+      i1++;
+    }
+    if (i1 > i0 && !stripTashkeel(s.substring(i0, i1)).contains('لله')) {
+      for (int i = i0; i < i1; i++) {
+        final c = cu[i];
+        if (!_kashidaDual.contains(c)) continue;
+        int j = i + 1;
+        while (j < i1 && _isMarkCu(cu[j])) {
+          j++;
+        }
+        if (j >= i1) continue;
+        final nx = cu[j];
+        if (nx < 0x0622 || nx > 0x064A) continue;
+        if (c == 0x0644 && (nx == 0x0622 || nx == 0x0623 || nx == 0x0625 || nx == 0x0627)) continue;
+        out.add(j);
+      }
+    }
+    i0 = i1;
+  }
+  return out;
+}
+
+double _measure(TextStyle st, String t) {
+  final tp = TextPainter(text: TextSpan(text: t, style: st), textDirection: TextDirection.rtl)..layout();
+  final w = tp.width;
+  tp.dispose();
+  return w;
+}
+
+List<int> _spread(int m, int total, int cap) {
+  final cnt = List<int>.filled(m, 0);
+  if (total <= 0 || m == 0) return cnt;
+  final base = (total ~/ m).clamp(0, cap).toInt();
+  for (int i = 0; i < m; i++) {
+    cnt[i] = base;
+  }
+  final rem = total - base * m;
+  if (rem > 0 && base < cap) {
+    for (int k = 0; k < rem; k++) {
+      final idx = (((k + 0.5) * m) / rem).floor().clamp(0, m - 1).toInt();
+      cnt[idx]++;
+    }
+  }
+  return cnt;
+}
+
+void _adjust(List<int> cnt, int k, int cap) {
+  final m = cnt.length;
+  final a = k.abs();
+  for (int j = 0; j < a; j++) {
+    final idx = ((((j + 0.5) * m) / a).floor()) % m;
+    for (int t = 0; t < m; t++) {
+      final p = (idx + t) % m;
+      if (k > 0 && cnt[p] < cap) {
+        cnt[p]++;
+        break;
+      }
+      if (k < 0 && cnt[p] > 0) {
+        cnt[p]--;
+        break;
+      }
+    }
+  }
+}
+
+String _applyKashida(String s, List<int> slots, List<int> cnt) {
+  final b = StringBuffer();
+  int prev = 0;
+  for (int k = 0; k < slots.length; k++) {
+    b.write(s.substring(prev, slots[k]));
+    if (cnt[k] > 0) b.write('\u0640' * cnt[k]);
+    prev = slots[k];
+  }
+  b.write(s.substring(prev));
+  return b.toString();
+}
+
+String justifyLineKashida(String line, TextStyle st, double maxW, double tw) {
+  final nat = _measure(st, line);
+  final deficit = maxW - nat;
+  if (deficit < tw * 0.8) return line;
+  final slots = kashidaSlots(line);
+  final m = slots.length;
+  if (m == 0) return line;
+  const cap = 3;
+  final cnt = _spread(m, math.min((deficit / tw).floor(), cap * m), cap);
+  var res = _applyKashida(line, slots, cnt);
+  for (int it = 0; it < 4; it++) {
+    final cw = _measure(st, res);
+    final used = cnt.fold<int>(0, (a, b) => a + b);
+    final eff = used > 0 ? (cw - nat) / used : tw;
+    if (eff < 1) break;
+    if (cw > maxW) {
+      _adjust(cnt, -((cw - maxW) / eff).ceil(), cap);
+    } else {
+      final k = ((maxW - cw) / eff).floor();
+      if (k <= 0) break;
+      _adjust(cnt, k, cap);
+    }
+    res = _applyKashida(line, slots, cnt);
+  }
+  int guard = 0;
+  while (_measure(st, res) > maxW && guard < 40) {
+    if (cnt.fold<int>(0, (a, b) => a + b) == 0) return line;
+    _adjust(cnt, -1, cap);
+    res = _applyKashida(line, slots, cnt);
+    guard++;
+  }
+  return res;
+}
+
+final Map<String, List<String>> _kCache = {};
+
+// يقسم الفقرة إلى أسطر حسب العرض، ويضبط كل سطر (عدا الأخير) بالكشيدة
+List<String> kashidaLines(String text, TextStyle st, double maxW) {
+  final key = '${text.hashCode}|${text.length}|${maxW.toStringAsFixed(1)}|${st.fontSize}|${st.fontFamily}|${st.wordSpacing}|${st.fontWeight}';
+  final hit = _kCache[key];
+  if (hit != null) return hit;
+  final tp = TextPainter(text: TextSpan(text: text, style: st), textDirection: TextDirection.rtl)..layout(maxWidth: maxW);
+  final ranges = <TextRange>[];
+  int pos = 0;
+  int guard = 0;
+  while (pos < text.length && guard < 1000) {
+    final r = tp.getLineBoundary(TextPosition(offset: pos));
+    if (r.end <= pos) break;
+    ranges.add(r);
+    pos = r.end;
+    guard++;
+  }
+  tp.dispose();
+  if (pos < text.length) ranges.add(TextRange(start: pos, end: text.length));
+  final tw = _measure(st, '\u0640' * 10) / 10;
+  final out = <String>[];
+  for (int i = 0; i < ranges.length; i++) {
+    var line = text.substring(ranges[i].start, ranges[i].end).trim();
+    if (i < ranges.length - 1 && line.isNotEmpty && tw > 0.5) {
+      line = justifyLineKashida(line, st, maxW, tw);
+    }
+    out.add(line);
+  }
+  if (_kCache.length > 3000) _kCache.clear();
+  _kCache[key] = out;
+  return out;
+}
+
+class KashidaParagraph extends StatelessWidget {
+  final String text;
+  final TextStyle style;
+  const KashidaParagraph({super.key, required this.text, required this.style});
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(builder: (context, box) {
+        final lines = kashidaLines(text, style, box.maxWidth - 1);
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 6),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [for (final l in lines) Text(l, style: style, maxLines: 1, softWrap: false, overflow: TextOverflow.visible)],
+          ),
+        );
+      });
+}
+
+Widget kashidaPage(BuildContext context, String title, String heading, List<String> paras, bool dark) {
+  final st = bodyStyle(context);
+  return Scaffold(
+    appBar: AppBar(title: Text(title)),
+    body: Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: dark ? const [Color(0xFF0E1512), Color(0xFF121C18)] : const [Color(0xFFE3EFE9), Color(0xFFF7F3E6)],
+        ),
+      ),
+      child: SelectionArea(
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 18),
+            decoration: BoxDecoration(
+              color: dark ? const Color(0x22FFFFFF) : const Color(0xB3FFFFFF),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: const Color(0x55C6A75E)),
+            ),
+            child: ListView.builder(
+              padding: const EdgeInsets.only(top: 8, bottom: 16),
+              itemCount: paras.length + 1,
+              itemBuilder: (context, i) {
+                if (i == 0) {
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Text(heading, textAlign: TextAlign.center, style: titleStyle(context)),
+                  );
+                }
+                return KashidaParagraph(text: paras[i - 1], style: st);
+              },
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
 }
