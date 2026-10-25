@@ -198,7 +198,7 @@ class HomeShell extends StatefulWidget {
 
 class _HomeShellState extends State<HomeShell> {
   int selected = 0;
-  final List<Widget> pages = const [HomePage(), AwradPage(), FavoritesPage(), MorePage()];
+  final List<Widget> pages = const [HomePage(), AwradPage(), MasbahaPage(), FavoritesPage(), MorePage()];
 
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -216,8 +216,9 @@ class _HomeShellState extends State<HomeShell> {
             child: Row(children: [
               _navItem(0, Icons.home_rounded, 'الرئيسية'),
               _navItem(1, Icons.menu_book_rounded, 'الأوراد'),
-              _navItem(2, Icons.favorite_rounded, 'المفضلة'),
-              _navItem(3, Icons.more_horiz_rounded, 'المزيد'),
+              _navItem(2, Icons.blur_circular, 'المسبحة'),
+              _navItem(3, Icons.favorite_rounded, 'المفضلة'),
+              _navItem(4, Icons.more_horiz_rounded, 'المزيد'),
             ]),
           ),
         ),
@@ -233,13 +234,13 @@ class _HomeShellState extends State<HomeShell> {
               borderRadius: BorderRadius.circular(24),
               onTap: () => setState(() => selected = i),
               child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 2),
+                padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 1),
                 child: Column(mainAxisSize: MainAxisSize.min, children: [
-                  Icon(icon, color: Colors.white, size: 30),
+                  Icon(icon, color: Colors.white, size: 26),
                   const SizedBox(height: 5),
                   FittedBox(
                     fit: BoxFit.scaleDown,
-                    child: Text(label, style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w700)),
+                    child: Text(label, style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w700)),
                   ),
                 ]),
               ),
@@ -877,5 +878,458 @@ class FontSettingsPage extends StatelessWidget {
             ]);
           },
         ),
+      );
+}
+
+
+// ===================== المسبحة =====================
+class Task {
+  final String id, text;
+  final int target;
+  final bool custom;
+  const Task(this.id, this.text, this.target, [this.custom = false]);
+}
+
+class WirdDef {
+  final String id, title;
+  final IconData icon;
+  final List<Task> tasks;
+  const WirdDef(this.id, this.title, this.icon, this.tasks);
+}
+
+const List<WirdDef> wirdDefs = [
+  WirdDef('am', 'ورد الصباح الأساسي', Icons.wb_sunny_rounded, [
+    Task('am1', 'أستغفر الله العظيم الذي لا إله إلا هو الحي القيوم وأتوب إليه', 100),
+    Task('am2', 'اللهم صل وسلم وبارك على سيدنا محمد وعلى آله عدد كمال الله وكما يليق بكماله', 100),
+  ]),
+  WirdDef('pm', 'ورد المساء الأساسي', Icons.nights_stay_rounded, [
+    Task('pm1', 'لا إله إلا الله', 500),
+  ]),
+];
+
+String _two(int n) => n.toString().padLeft(2, '0');
+String todayKey() {
+  final n = DateTime.now();
+  return '${n.year}-${_two(n.month)}-${_two(n.day)}';
+}
+
+Future<void> addLog(String wird, String text, int count) async {
+  final p = await SharedPreferences.getInstance();
+  final list = p.getStringList('m_log') ?? [];
+  final n = DateTime.now();
+  list.insert(0, [todayKey(), '${_two(n.hour)}:${_two(n.minute)}', wird, text, '$count'].join('\t'));
+  if (list.length > 500) list.removeRange(500, list.length);
+  await p.setStringList('m_log', list);
+}
+
+Future<List<Task>> loadCustom(String wirdId) async {
+  final p = await SharedPreferences.getInstance();
+  final raw = p.getStringList('m_custom_$wirdId') ?? [];
+  final out = <Task>[];
+  for (final r in raw) {
+    final parts = r.split('\t');
+    if (parts.length >= 3) out.add(Task(parts[0], parts.sublist(2).join(' '), int.tryParse(parts[1]) ?? 33, true));
+  }
+  return out;
+}
+
+Future<void> saveCustom(String wirdId, List<Task> list) async {
+  final p = await SharedPreferences.getInstance();
+  await p.setStringList('m_custom_$wirdId', [for (final t in list) '${t.id}\t${t.target}\t${t.text}']);
+}
+
+class MasbahaPage extends StatelessWidget {
+  const MasbahaPage({super.key});
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(title: const Text('المسبحة')),
+        body: ListView(padding: const EdgeInsets.all(16), children: [
+          for (final w in wirdDefs) ...[
+            SectionCard(
+              title: w.title,
+              subtitle: 'اضغطي لعرض المهام وعداد السبحة',
+              icon: w.icon,
+              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => WirdPage(def: w))),
+            ),
+            const SizedBox(height: 12),
+          ],
+          SectionCard(
+            title: 'سجل الإنجازات',
+            subtitle: 'الأذكار التي أكملتها',
+            icon: Icons.history,
+            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const LogPage())),
+          ),
+        ]),
+      );
+}
+
+class WirdPage extends StatefulWidget {
+  final WirdDef def;
+  const WirdPage({super.key, required this.def});
+  @override
+  State<WirdPage> createState() => _WirdPageState();
+}
+
+class _WirdPageState extends State<WirdPage> {
+  List<Task> custom = [];
+  final Map<String, int> counts = {};
+  final Map<String, int> targets = {};
+  bool loaded = false;
+
+  List<Task> get all => [...widget.def.tasks, ...custom];
+
+  @override
+  void initState() {
+    super.initState();
+    load();
+  }
+
+  Future<void> load() async {
+    final p = await SharedPreferences.getInstance();
+    final c = await loadCustom(widget.def.id);
+    final list = [...widget.def.tasks, ...c];
+    final cm = <String, int>{};
+    final tm = <String, int>{};
+    for (final t in list) {
+      cm[t.id] = p.getInt('m_c_${t.id}_${todayKey()}') ?? 0;
+      tm[t.id] = p.getInt('m_t_${t.id}') ?? t.target;
+    }
+    if (!mounted) return;
+    setState(() {
+      custom = c;
+      counts
+        ..clear()
+        ..addAll(cm);
+      targets
+        ..clear()
+        ..addAll(tm);
+      loaded = true;
+    });
+  }
+
+  Future<void> addDhikr() async {
+    final textC = TextEditingController();
+    final numC = TextEditingController(text: '100');
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('إضافة ذكر'),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          TextField(controller: textC, maxLines: 3, minLines: 1, decoration: const InputDecoration(labelText: 'نص الذكر')),
+          const SizedBox(height: 12),
+          TextField(controller: numC, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'العدد')),
+        ]),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('إلغاء')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('إضافة')),
+        ],
+      ),
+    );
+    final text = textC.text.replaceAll('\t', ' ').trim();
+    final n = int.tryParse(numC.text.trim()) ?? 0;
+    if (ok == true && text.isNotEmpty && n >= 1) {
+      final list = [...custom, Task('c${DateTime.now().millisecondsSinceEpoch}', text, n, true)];
+      await saveCustom(widget.def.id, list);
+      await load();
+    }
+  }
+
+  Future<void> deleteDhikr(Task t) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('حذف الذكر؟'),
+        content: Text(t.text),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('إلغاء')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('حذف')),
+        ],
+      ),
+    );
+    if (ok == true) {
+      await saveCustom(widget.def.id, custom.where((x) => x.id != t.id).toList());
+      await load();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(
+          title: Text(widget.def.title),
+          actions: [
+            IconButton(
+              tooltip: 'سجل الإنجازات',
+              icon: const Icon(Icons.history),
+              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const LogPage())),
+            ),
+          ],
+        ),
+        floatingActionButton: FloatingActionButton.extended(
+          backgroundColor: green,
+          foregroundColor: Colors.white,
+          onPressed: addDhikr,
+          icon: const Icon(Icons.add),
+          label: const Text('إضافة ذكر'),
+        ),
+        body: !loaded
+            ? const Center(child: CircularProgressIndicator())
+            : ListView(padding: const EdgeInsets.fromLTRB(16, 16, 16, 90), children: [
+                for (final t in all) _taskCard(t),
+              ]),
+      );
+
+  Widget _taskCard(Task t) {
+    final c = counts[t.id] ?? 0;
+    final tg = targets[t.id] ?? t.target;
+    final done = c >= tg;
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      color: isDark(context) ? const Color(0xFF17231F) : Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+        side: BorderSide(color: done ? gold : (isDark(context) ? const Color(0xFF2B3D36) : const Color(0xFFD7E2DD)), width: done ? 2 : 1),
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: () async {
+          await Navigator.push(context, MaterialPageRoute(builder: (_) => CounterPage(task: t, wird: widget.def.title)));
+          load();
+        },
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Expanded(child: Text(t.text, style: TextStyle(fontSize: 18, height: 1.9, fontWeight: FontWeight.w600, color: ink(context)))),
+              if (done) const Icon(Icons.check_circle, color: gold),
+              if (t.custom) IconButton(icon: const Icon(Icons.delete_outline), onPressed: () => deleteDhikr(t)),
+            ]),
+            const SizedBox(height: 8),
+            LinearProgressIndicator(value: tg == 0 ? 0 : (c / tg).clamp(0.0, 1.0).toDouble(), minHeight: 8, borderRadius: BorderRadius.circular(8), color: green),
+            const SizedBox(height: 6),
+            Text('$c / $tg', textAlign: TextAlign.center, style: TextStyle(color: ink(context).withOpacity(0.7))),
+          ]),
+        ),
+      ),
+    );
+  }
+}
+
+class CounterPage extends StatefulWidget {
+  final Task task;
+  final String wird;
+  const CounterPage({super.key, required this.task, required this.wird});
+  @override
+  State<CounterPage> createState() => _CounterPageState();
+}
+
+class _CounterPageState extends State<CounterPage> {
+  int count = 0, target = 100;
+  bool ready = false;
+  late SharedPreferences prefs;
+
+  String get ckey => 'm_c_${widget.task.id}_${todayKey()}';
+  String get tkey => 'm_t_${widget.task.id}';
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    prefs = await SharedPreferences.getInstance();
+    if (!mounted) return;
+    setState(() {
+      count = prefs.getInt(ckey) ?? 0;
+      target = prefs.getInt(tkey) ?? widget.task.target;
+      ready = true;
+    });
+  }
+
+  Future<void> _tap() async {
+    if (!ready || count >= target) return;
+    setState(() => count++);
+    await prefs.setInt(ckey, count);
+    if (count >= target) {
+      HapticFeedback.heavyImpact();
+      await addLog(widget.wird, widget.task.text, target);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم الإنجاز وحُفظ في السجل')));
+      }
+    } else {
+      HapticFeedback.selectionClick();
+    }
+  }
+
+  Future<void> _reset() async {
+    setState(() => count = 0);
+    await prefs.setInt(ckey, 0);
+  }
+
+  Future<void> _editTarget() async {
+    final c = TextEditingController(text: '$target');
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('تعديل العدد'),
+        content: TextField(controller: c, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'العدد المطلوب')),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('إلغاء')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('حفظ')),
+        ],
+      ),
+    );
+    final n = int.tryParse(c.text.trim()) ?? 0;
+    if (ok == true && n >= 1) {
+      await prefs.setInt(tkey, n);
+      setState(() {
+        target = n;
+        if (count > n) count = n;
+      });
+      await prefs.setInt(ckey, count);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final done = ready && count >= target;
+    return Scaffold(
+      appBar: AppBar(title: Text(widget.wird)),
+      body: !ready
+          ? const Center(child: CircularProgressIndicator())
+          : Column(children: [
+              Container(
+                width: double.infinity,
+                constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.3),
+                margin: const EdgeInsets.all(16),
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: isDark(context) ? const Color(0x22FFFFFF) : const Color(0xB3FFFFFF),
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(color: const Color(0x55C6A75E)),
+                ),
+                child: SingleChildScrollView(child: Text(widget.task.text, textAlign: TextAlign.center, style: bodyStyle(context))),
+              ),
+              Expanded(
+                child: Center(
+                  child: SizedBox(
+                    width: 250,
+                    height: 250,
+                    child: Stack(alignment: Alignment.center, children: [
+                      SizedBox.expand(
+                        child: CircularProgressIndicator(
+                          value: (count / target).clamp(0.0, 1.0).toDouble(),
+                          strokeWidth: 10,
+                          color: gold,
+                          backgroundColor: isDark(context) ? const Color(0xFF2B3D36) : const Color(0xFFD7E2DD),
+                        ),
+                      ),
+                      Material(
+                        color: done ? const Color(0xFF2B8065) : green,
+                        shape: const CircleBorder(),
+                        elevation: 4,
+                        child: InkWell(
+                          customBorder: const CircleBorder(),
+                          onTap: _tap,
+                          child: SizedBox(
+                            width: 210,
+                            height: 210,
+                            child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                              Text('$count', style: const TextStyle(color: Colors.white, fontSize: 62, fontWeight: FontWeight.bold)),
+                              Text(done ? 'اكتمل' : 'من $target', style: const TextStyle(color: Colors.white70, fontSize: 18)),
+                            ]),
+                          ),
+                        ),
+                      ),
+                    ]),
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+                child: Row(children: [
+                  Expanded(child: OutlinedButton.icon(onPressed: _reset, icon: const Icon(Icons.restart_alt), label: const Text('تصفير'))),
+                  const SizedBox(width: 12),
+                  Expanded(child: OutlinedButton.icon(onPressed: _editTarget, icon: const Icon(Icons.edit), label: const Text('تعديل العدد'))),
+                ]),
+              ),
+            ]),
+    );
+  }
+}
+
+class LogPage extends StatefulWidget {
+  const LogPage({super.key});
+  @override
+  State<LogPage> createState() => _LogPageState();
+}
+
+class _LogPageState extends State<LogPage> {
+  List<List<String>> rows = [];
+  bool loaded = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final p = await SharedPreferences.getInstance();
+    final raw = p.getStringList('m_log') ?? [];
+    if (!mounted) return;
+    setState(() {
+      rows = raw.map((r) => r.split('\t')).where((r) => r.length >= 5).toList();
+      loaded = true;
+    });
+  }
+
+  Future<void> _clear() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('مسح السجل كله؟'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('إلغاء')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('مسح')),
+        ],
+      ),
+    );
+    if (ok == true) {
+      final p = await SharedPreferences.getInstance();
+      await p.remove('m_log');
+      _load();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(
+          title: const Text('سجل الإنجازات'),
+          actions: [if (rows.isNotEmpty) IconButton(tooltip: 'مسح السجل', icon: const Icon(Icons.delete_sweep), onPressed: _clear)],
+        ),
+        body: !loaded
+            ? const Center(child: CircularProgressIndicator())
+            : rows.isEmpty
+                ? const Center(
+                    child: Padding(
+                      padding: EdgeInsets.all(28),
+                      child: Text('لا توجد إنجازات بعد. أكملي عدد أي ذكر وسيظهر هنا.', textAlign: TextAlign.center, style: TextStyle(fontSize: 18, height: 1.8)),
+                    ),
+                  )
+                : ListView.separated(
+                    padding: const EdgeInsets.all(12),
+                    itemCount: rows.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (context, i) {
+                      final r = rows[i];
+                      return ListTile(
+                        leading: const Icon(Icons.check_circle, color: gold),
+                        title: Text(r[3], style: const TextStyle(fontWeight: FontWeight.w600, height: 1.6)),
+                        subtitle: Text('${r[2]} • ${r[0]} ${r[1]}'),
+                        trailing: Text('×${r[4]}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                      );
+                    },
+                  ),
       );
 }
