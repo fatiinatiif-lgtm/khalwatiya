@@ -1,0 +1,26 @@
+name: al_tariqa_al_khalwatiya_al_bakriya
+description: تطبيق الطريقة الخلوتية البكرية يعمل بمحتواه الأساسي دون اتصال بالإنترنت.
+publish_to: 'none'
+version: 1.0.0+1
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+dependencies:
+  flutter:
+    sdk: flutter
+  pdfx: ^2.8.0
+  shared_preferences: ^2.3.2
+dev_dependencies:
+  flutter_launcher_icons: ^0.14.1
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: assets/icon/app_icon.png
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/books/awrad.pdf
+    - assets/indexes/fhris.txt
+    - assets/texts/musabbaat.txt
+    - assets/texts/salawat_dardiriyya.txt
+    - assets/texts/manzuma.txt
+    - assets/icon/app_icon.png
