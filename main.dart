@@ -887,7 +887,9 @@ class Task {
   final String id, text;
   final int target;
   final bool custom;
-  const Task(this.id, this.text, this.target, [this.custom = false]);
+  final bool daily; // false = العداد تراكمي ولا يُصفَّر يومياً
+  const Task(this.id, this.text, this.target, {this.custom = false, this.daily = true});
+  String get countKey => daily ? 'm_c_${id}_${todayKey()}' : 'm_c_${id}_total';
 }
 
 class WirdDef {
@@ -906,6 +908,16 @@ const List<WirdDef> wirdDefs = [
     Task('pm1', 'لا إله إلا الله', 500),
   ]),
 ];
+
+const WirdDef namesDef = WirdDef('names', 'الذكر بالأسماء الحسنى', Icons.auto_awesome, [
+  Task('n1', 'لا إله إلا الله', 500),
+  Task('n2', 'الله', 2000),
+  Task('n3', 'هو', 3000),
+  Task('n4', 'حق', 4000),
+  Task('n5', 'حي', 5000),
+  Task('n6', 'قيوم', 6000),
+  Task('n7', 'قهار', 324000),
+]);
 
 String _two(int n) => n.toString().padLeft(2, '0');
 String todayKey() {
@@ -928,7 +940,7 @@ Future<List<Task>> loadCustom(String wirdId) async {
   final out = <Task>[];
   for (final r in raw) {
     final parts = r.split('\t');
-    if (parts.length >= 3) out.add(Task(parts[0], parts.sublist(2).join(' '), int.tryParse(parts[1]) ?? 33, true));
+    if (parts.length >= 3) out.add(Task(parts[0], parts.sublist(2).join(' '), int.tryParse(parts[1]) ?? 33, custom: true));
   }
   return out;
 }
@@ -953,6 +965,13 @@ class MasbahaPage extends StatelessWidget {
             ),
             const SizedBox(height: 12),
           ],
+          SectionCard(
+            title: namesDef.title,
+            subtitle: 'لا إله إلا الله • الله • هو • حق • حي • قيوم • قهار',
+            icon: namesDef.icon,
+            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => WirdPage(def: namesDef))),
+          ),
+          const SizedBox(height: 12),
           SectionCard(
             title: 'سجل الإنجازات',
             subtitle: 'الأذكار التي أكملتها',
@@ -991,7 +1010,7 @@ class _WirdPageState extends State<WirdPage> {
     final cm = <String, int>{};
     final tm = <String, int>{};
     for (final t in list) {
-      cm[t.id] = p.getInt('m_c_${t.id}_${todayKey()}') ?? 0;
+      cm[t.id] = p.getInt(t.countKey) ?? 0;
       tm[t.id] = p.getInt('m_t_${t.id}') ?? t.target;
     }
     if (!mounted) return;
@@ -1028,7 +1047,7 @@ class _WirdPageState extends State<WirdPage> {
     final text = textC.text.replaceAll('\t', ' ').trim();
     final n = int.tryParse(numC.text.trim()) ?? 0;
     if (ok == true && text.isNotEmpty && n >= 1) {
-      final list = [...custom, Task('c${DateTime.now().millisecondsSinceEpoch}', text, n, true)];
+      final list = [...custom, Task('c${DateTime.now().millisecondsSinceEpoch}', text, n, custom: true)];
       await saveCustom(widget.def.id, list);
       await load();
     }
@@ -1127,7 +1146,7 @@ class _CounterPageState extends State<CounterPage> {
   bool ready = false;
   late SharedPreferences prefs;
 
-  String get ckey => 'm_c_${widget.task.id}_${todayKey()}';
+  String get ckey => widget.task.countKey;
   String get tkey => 'm_t_${widget.task.id}';
 
   @override
