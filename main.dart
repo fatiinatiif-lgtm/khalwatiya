@@ -6,8 +6,6 @@ import 'package:flutter/services.dart';
 import 'package:pdfx/pdfx.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-const green = Color(0xFF176B50);
-const deepGreen = Color(0xFF104A39);
 const silver = Color(0xFFE8ECEB);
 const gold = Color(0xFFC6A75E);
 
@@ -15,9 +13,9 @@ const gold = Color(0xFFC6A75E);
 const int pageOffset = 0;
 
 bool isDark(BuildContext c) => Theme.of(c).brightness == Brightness.dark;
-Color ink(BuildContext c) => isDark(c) ? const Color(0xFFE6EEEA) : const Color(0xFF20352E);
-Color accent(BuildContext c) => isDark(c) ? const Color(0xFF7FD1B0) : deepGreen;
-Color softBg(BuildContext c) => isDark(c) ? const Color(0xFF22332D) : const Color(0xFFE8F1ED);
+Color ink(BuildContext c) => isDark(c) ? const Color(0xFFE6EEEA) : inkLight;
+Color accent(BuildContext c) => isDark(c) ? lighten(0.45) : deepGreen;
+Color softBg(BuildContext c) => isDark(c) ? darkTint(0.22) : tint(0.12);
 
 // ===== إعدادات الخط (موحدة لكل صفحات النصوص) =====
 const List<String> fontLabels = ['الافتراضي', 'سيريف', 'سانس', 'كاجوال', 'مائل'];
@@ -140,6 +138,7 @@ Future<void> loadFavorites() async {
   final p = await SharedPreferences.getInstance();
   favorites.value = p.getStringList('favorites') ?? [];
   darkMode.value = p.getBool('dark') ?? false;
+  paletteIdx.value = (p.getInt('palette') ?? 0).clamp(0, palettes.length - 1).toInt();
   timeOffset = Duration(milliseconds: p.getInt('clock_off_ms') ?? 0);
   hijriAdj = p.getInt('hijri_adj') ?? 0;
   fontCfg.value = FontCfg(
@@ -168,13 +167,15 @@ Future<void> toggleFavorite(IndexEntry e) async {
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await loadFavorites();
-  runApp(const KhalwatiApp());
+  runApp(KhalwatiApp());
 }
 
 class KhalwatiApp extends StatelessWidget {
   const KhalwatiApp({super.key});
   @override
-  Widget build(BuildContext context) => ValueListenableBuilder<bool>(
+  Widget build(BuildContext context) => ValueListenableBuilder<int>(
+      valueListenable: paletteIdx,
+      builder: (context, _, __) => ValueListenableBuilder<bool>(
         valueListenable: darkMode,
         builder: (context, dark, _) => MaterialApp(
           debugShowCheckedModeBanner: false,
@@ -184,18 +185,18 @@ class KhalwatiApp extends StatelessWidget {
           theme: ThemeData(
             useMaterial3: true,
             colorScheme: ColorScheme.fromSeed(seedColor: green),
-            scaffoldBackgroundColor: const Color(0xFFF7F9F8),
-            appBarTheme: const AppBarTheme(backgroundColor: deepGreen, foregroundColor: Colors.white, centerTitle: true),
+            scaffoldBackgroundColor: tint(0.04),
+            appBarTheme: AppBarTheme(backgroundColor: deepGreen, foregroundColor: Colors.white, centerTitle: true),
           ),
           darkTheme: ThemeData(
             useMaterial3: true,
             colorScheme: ColorScheme.fromSeed(seedColor: green, brightness: Brightness.dark),
-            scaffoldBackgroundColor: const Color(0xFF0E1512),
-            appBarTheme: const AppBarTheme(backgroundColor: Color(0xFF0B2E24), foregroundColor: Colors.white, centerTitle: true),
+            scaffoldBackgroundColor: darkTint(0.06),
+            appBarTheme: AppBarTheme(backgroundColor: deepDark, foregroundColor: Colors.white, centerTitle: true),
           ),
-          home: const SplashScreen(),
+          home: SplashScreen(),
         ),
-      );
+      ));
 }
 
 class SplashScreen extends StatefulWidget {
@@ -208,9 +209,9 @@ class _SplashScreenState extends State<SplashScreen> {
   @override
   void initState() {
     super.initState();
-    Timer(const Duration(seconds: 4), () {
+    Timer(Duration(seconds: 4), () {
       if (mounted) {
-        Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => const HomeShell()));
+        Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => HomeShell()));
       }
     });
   }
@@ -221,7 +222,7 @@ class _SplashScreenState extends State<SplashScreen> {
         body: SafeArea(
           child: Center(
             child: Padding(
-              padding: const EdgeInsets.all(28),
+              padding: EdgeInsets.all(28),
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
@@ -229,8 +230,8 @@ class _SplashScreenState extends State<SplashScreen> {
                     borderRadius: BorderRadius.circular(28),
                     child: Image.asset('assets/icon/app_icon.png', width: 180, height: 180, fit: BoxFit.cover),
                   ),
-                  const SizedBox(height: 28),
-                  const Text('هلموا إلى ذكر الله أيها المريدون',
+                  SizedBox(height: 28),
+                  Text('هلموا إلى ذكر الله أيها المريدون',
                       textAlign: TextAlign.center, style: TextStyle(fontSize: 20, color: silver, height: 1.8)),
                 ],
               ),
@@ -255,13 +256,13 @@ class _HomeShellState extends State<HomeShell> {
         body: SafeArea(child: IndexedStack(index: selected, children: pages)),
         bottomNavigationBar: SafeArea(
           child: Container(
-            margin: const EdgeInsets.fromLTRB(12, 4, 12, 10),
-            padding: const EdgeInsets.all(8),
+            margin: EdgeInsets.fromLTRB(12, 4, 12, 10),
+            padding: EdgeInsets.all(8),
             decoration: BoxDecoration(
               color: deepGreen,
               borderRadius: BorderRadius.circular(30),
               border: Border.all(color: gold, width: 1.5),
-              boxShadow: const [BoxShadow(color: Color(0x22000000), blurRadius: 10, offset: Offset(0, 3))],
+              boxShadow: [BoxShadow(color: Color(0x22000000), blurRadius: 10, offset: Offset(0, 3))],
             ),
             child: Row(children: [
               _navItem(0, Icons.home_rounded, 'الرئيسية'),
@@ -276,21 +277,21 @@ class _HomeShellState extends State<HomeShell> {
 
   Widget _navItem(int i, IconData icon, String label) => Expanded(
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 3),
+          padding: EdgeInsets.symmetric(horizontal: 3),
           child: Material(
-            color: selected == i ? const Color(0xFF2B8065) : Colors.transparent,
+            color: selected == i ? lighten(0.12) : Colors.transparent,
             borderRadius: BorderRadius.circular(24),
             child: InkWell(
               borderRadius: BorderRadius.circular(24),
               onTap: () => setState(() => selected = i),
               child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 1),
+                padding: EdgeInsets.symmetric(vertical: 12, horizontal: 1),
                 child: Column(mainAxisSize: MainAxisSize.min, children: [
                   Icon(icon, color: Colors.white, size: 26),
-                  const SizedBox(height: 5),
+                  SizedBox(height: 5),
                   FittedBox(
                     fit: BoxFit.scaleDown,
-                    child: Text(label, style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w700)),
+                    child: Text(label, style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w700)),
                   ),
                 ]),
               ),
@@ -305,7 +306,7 @@ class HomePage extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(
-          title: const Text('الطريقة الخلوتية البكرية'),
+          title: Text('الطريقة الخلوتية البكرية'),
           actions: [
             IconButton(
               tooltip: 'الوضع الليلي',
@@ -314,16 +315,16 @@ class HomePage extends StatelessWidget {
             ),
           ],
         ),
-        body: ListView(padding: const EdgeInsets.all(18), children: [
-          const ClockCard(),
-          const SizedBox(height: 20),
+        body: ListView(padding: EdgeInsets.all(18), children: [
+          ClockCard(),
+          SizedBox(height: 20),
           SectionCard(
             title: 'كتاب أوراد الطريقة',
             subtitle: 'افتح الكتاب أو تصفح الفهرس للوصول إلى العناوين',
             icon: Icons.menu_book,
-            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const BookIndexPage())),
+            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => BookIndexPage())),
           ),
-          const SizedBox(height: 10),
+          SizedBox(height: 10),
           Text('المحتوى محفوظ داخل التطبيق ويمكن فتحه دون إنترنت.',
               textAlign: TextAlign.center, style: TextStyle(color: ink(context).withOpacity(0.7), height: 1.8)),
         ]),
@@ -334,29 +335,29 @@ class AwradPage extends StatelessWidget {
   const AwradPage({super.key});
   @override
   Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text('الأوراد')),
-        body: ListView(padding: const EdgeInsets.all(16), children: [
+        appBar: AppBar(title: Text('الأوراد')),
+        body: ListView(padding: EdgeInsets.all(16), children: [
           SectionCard(
             title: 'كتاب أوراد الطريقة',
             subtitle: 'الكتاب الكامل مع فهرس العناوين',
             icon: Icons.menu_book_rounded,
-            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const BookIndexPage())),
+            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => BookIndexPage())),
           ),
-          const SizedBox(height: 12),
+          SizedBox(height: 12),
           SectionCard(
             title: 'المسبعات',
             subtitle: 'النص الكامل',
             icon: Icons.format_list_numbered,
             onTap: () => openText(context, 'المسبعات', 'assets/texts/musabbaat.txt', false),
           ),
-          const SizedBox(height: 12),
+          SizedBox(height: 12),
           SectionCard(
             title: 'الصلوات الدرديرية',
             subtitle: 'النص الكامل',
             icon: Icons.volunteer_activism,
             onTap: () => openText(context, 'الصلوات الدرديرية', 'assets/texts/salawat_dardiriyya.txt', false),
           ),
-          const SizedBox(height: 12),
+          SizedBox(height: 12),
           SectionCard(
             title: 'المنظومة',
             subtitle: 'القصيدة كاملة',
@@ -375,28 +376,28 @@ class SectionCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Card(
         elevation: 1,
-        color: isDark(context) ? const Color(0xFF17231F) : Colors.white,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18), side: BorderSide(color: isDark(context) ? const Color(0xFF2B3D36) : const Color(0xFFD7E2DD))),
+        color: isDark(context) ? darkTint(0.14) : Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18), side: BorderSide(color: isDark(context) ? darkTint(0.30) : tint(0.20))),
         child: InkWell(
           borderRadius: BorderRadius.circular(18),
           onTap: onTap,
           child: Padding(
-            padding: const EdgeInsets.all(16),
+            padding: EdgeInsets.all(16),
             child: Row(children: [
               Container(
-                padding: const EdgeInsets.all(12),
+                padding: EdgeInsets.all(12),
                 decoration: BoxDecoration(color: softBg(context), borderRadius: BorderRadius.circular(14)),
                 child: Icon(icon, color: green, size: 28),
               ),
-              const SizedBox(width: 14),
+              SizedBox(width: 14),
               Expanded(
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   Text(title, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: accent(context))),
-                  const SizedBox(height: 5),
+                  SizedBox(height: 5),
                   Text(subtitle, style: TextStyle(color: ink(context).withOpacity(0.65), height: 1.5)),
                 ]),
               ),
-              const Icon(Icons.chevron_left, color: green),
+              Icon(Icons.chevron_left, color: green),
             ]),
           ),
         ),
@@ -432,7 +433,7 @@ class TextReaderPage extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Text(heading, textAlign: TextAlign.center, style: titleStyle(context)),
-        const SizedBox(height: 8),
+        SizedBox(height: 8),
         if (poem)
           PoemView(lines: body, cfg: cfg)
         else
@@ -447,18 +448,18 @@ class TextReaderPage extends StatelessWidget {
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: dark ? const [Color(0xFF0E1512), Color(0xFF121C18)] : const [Color(0xFFE3EFE9), Color(0xFFF7F3E6)],
+            colors: dark ? [darkTint(0.06), darkTint(0.10)] : [tint(0.16), Color(0xFFF7F3E6)],
           ),
         ),
         child: SelectionArea(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(14, 14, 14, 30),
+            padding: EdgeInsets.fromLTRB(14, 14, 14, 30),
             child: Container(
               padding: EdgeInsets.symmetric(horizontal: poem ? 12 : 22, vertical: 16),
               decoration: BoxDecoration(
-                color: dark ? const Color(0x22FFFFFF) : const Color(0xB3FFFFFF),
+                color: dark ? Color(0x22FFFFFF) : Color(0xB3FFFFFF),
                 borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: const Color(0x55C6A75E)),
+                border: Border.all(color: Color(0x55C6A75E)),
               ),
               child: content,
             ),
@@ -499,38 +500,38 @@ class _BookIndexPageState extends State<BookIndexPage> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text('فهرس كتاب أوراد الطريقة')),
+        appBar: AppBar(title: Text('فهرس كتاب أوراد الطريقة')),
         body: FutureBuilder<List<IndexEntry>>(
           future: entries,
           builder: (context, snap) {
-            if (!snap.hasData) return const Center(child: CircularProgressIndicator());
+            if (!snap.hasData) return Center(child: CircularProgressIndicator());
             final data = snap.data!;
             return ValueListenableBuilder<List<String>>(
               valueListenable: favorites,
               builder: (context, favs, _) => ListView.separated(
-                padding: const EdgeInsets.all(12),
+                padding: EdgeInsets.all(12),
                 itemCount: data.length + 1,
-                separatorBuilder: (_, __) => const Divider(height: 1),
+                separatorBuilder: (_, __) => Divider(height: 1),
                 itemBuilder: (context, i) {
                   if (i == 0) {
                     return Padding(
-                      padding: const EdgeInsets.all(12),
+                      padding: EdgeInsets.all(12),
                       child: FilledButton.icon(
                         style: FilledButton.styleFrom(backgroundColor: green),
-                        onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PdfReaderPage(initialPage: 1))),
-                        icon: const Icon(Icons.menu_book),
-                        label: const Text('فتح الكتاب من البداية'),
+                        onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => PdfReaderPage(initialPage: 1))),
+                        icon: Icon(Icons.menu_book),
+                        label: Text('فتح الكتاب من البداية'),
                       ),
                     );
                   }
                   final e = data[i - 1];
                   final isFav = favs.contains('${e.title}|${e.page}');
                   return ListTile(
-                    title: Text(e.title, style: const TextStyle(fontWeight: FontWeight.w600)),
+                    title: Text(e.title, style: TextStyle(fontWeight: FontWeight.w600)),
                     leading: CircleAvatar(
                       backgroundColor: softBg(context),
                       foregroundColor: accent(context),
-                      child: Text('${e.page}', style: const TextStyle(fontSize: 13)),
+                      child: Text('${e.page}', style: TextStyle(fontSize: 13)),
                     ),
                     trailing: IconButton(
                       tooltip: 'إضافة إلى المفضلة',
@@ -644,7 +645,7 @@ class _PdfReaderPageState extends State<PdfReaderPage> {
   Widget build(BuildContext context) {
     final dark = isDark(context);
     return Scaffold(
-      backgroundColor: dark ? const Color(0xFF0E1512) : const Color(0xFFEDEFEE),
+      backgroundColor: dark ? darkTint(0.06) : Color(0xFFEDEFEE),
       appBar: AppBar(
         title: Text(doc == null ? 'كتاب أوراد الطريقة' : 'صفحة $current من ${doc!.pagesCount}'),
         actions: [
@@ -655,15 +656,15 @@ class _PdfReaderPageState extends State<PdfReaderPage> {
           ),
           IconButton(
             tooltip: 'الفهرس',
-            icon: const Icon(Icons.list_alt),
-            onPressed: () => Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const BookIndexPage())),
+            icon: Icon(Icons.list_alt),
+            onPressed: () => Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => BookIndexPage())),
           ),
         ],
       ),
       body: error != null
-          ? Center(child: Padding(padding: const EdgeInsets.all(20), child: Text('تعذر فتح ملف الكتاب: $error', textAlign: TextAlign.center)))
+          ? Center(child: Padding(padding: EdgeInsets.all(20), child: Text('تعذر فتح ملف الكتاب: $error', textAlign: TextAlign.center)))
           : doc == null
-              ? const Center(child: CircularProgressIndicator())
+              ? Center(child: CircularProgressIndicator())
               : LayoutBuilder(builder: (context, box) {
                   final w = box.maxWidth;
                   itemExtent = w * aspect + gap;
@@ -720,24 +721,24 @@ class _PdfPageTileState extends State<_PdfPageTile> {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: _PdfReaderPageState.gap),
+      padding: EdgeInsets.only(bottom: _PdfReaderPageState.gap),
       child: FutureBuilder<Uint8List?>(
         future: f,
         builder: (context, snap) {
           if (snap.connectionState != ConnectionState.done) {
-            return const Center(child: CircularProgressIndicator());
+            return Center(child: CircularProgressIndicator());
           }
           final bytes = snap.data;
           if (bytes == null) {
             return Center(
               child: IconButton(
-                icon: const Icon(Icons.refresh, size: 36),
+                icon: Icon(Icons.refresh, size: 36),
                 onPressed: () => setState(() => f = widget.host.render(widget.index)),
               ),
             );
           }
           final img = Image.memory(bytes, width: widget.width, height: widget.height, fit: BoxFit.fill, gaplessPlayback: true, filterQuality: FilterQuality.high);
-          return widget.dark ? ColorFiltered(colorFilter: const ColorFilter.matrix(invert), child: img) : img;
+          return widget.dark ? ColorFiltered(colorFilter: ColorFilter.matrix(invert), child: img) : img;
         },
       ),
     );
@@ -748,12 +749,12 @@ class FavoritesPage extends StatelessWidget {
   const FavoritesPage({super.key});
   @override
   Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text('المفضلة')),
+        appBar: AppBar(title: Text('المفضلة')),
         body: ValueListenableBuilder<List<String>>(
           valueListenable: favorites,
           builder: (context, favs, _) {
             if (favs.isEmpty) {
-              return const Center(
+              return Center(
                 child: Padding(
                   padding: EdgeInsets.all(28),
                   child: Text('اضغطي على النجمة بجانب أي عنوان في الفهرس ليظهر هنا.',
@@ -762,18 +763,18 @@ class FavoritesPage extends StatelessWidget {
               );
             }
             return ListView.separated(
-              padding: const EdgeInsets.all(12),
+              padding: EdgeInsets.all(12),
               itemCount: favs.length,
-              separatorBuilder: (_, __) => const Divider(height: 1),
+              separatorBuilder: (_, __) => Divider(height: 1),
               itemBuilder: (context, i) {
                 final p = favs[i].split('|');
                 final title = p.first;
                 final page = int.tryParse(p.last) ?? 1;
                 return ListTile(
-                  title: Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
+                  title: Text(title, style: TextStyle(fontWeight: FontWeight.w600)),
                   subtitle: Text('صفحة $page'),
-                  leading: const Icon(Icons.star_rounded, color: gold),
-                  trailing: IconButton(icon: const Icon(Icons.delete_outline), onPressed: () => toggleFavorite(IndexEntry(title, page))),
+                  leading: Icon(Icons.star_rounded, color: gold),
+                  trailing: IconButton(icon: Icon(Icons.delete_outline), onPressed: () => toggleFavorite(IndexEntry(title, page))),
                   onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => PdfReaderPage(initialPage: page))),
                 );
               },
@@ -787,33 +788,40 @@ class MorePage extends StatelessWidget {
   const MorePage({super.key});
   @override
   Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text('المزيد')),
-        body: ListView(padding: const EdgeInsets.all(20), children: [
+        appBar: AppBar(title: Text('المزيد')),
+        body: ListView(padding: EdgeInsets.all(20), children: [
           ValueListenableBuilder<bool>(
             valueListenable: darkMode,
             builder: (context, dark, _) => SwitchListTile(
-              secondary: const Icon(Icons.dark_mode, color: green),
-              title: const Text('الوضع الليلي'),
+              secondary: Icon(Icons.dark_mode, color: green),
+              title: Text('الوضع الليلي'),
               value: dark,
               onChanged: (v) => setDark(v),
             ),
           ),
           ListTile(
-            leading: const Icon(Icons.text_fields, color: green),
-            title: const Text('إعدادات الخط'),
-            subtitle: const Text('الحجم والنوع واللون والتباعد والتشكيل'),
-            trailing: const Icon(Icons.chevron_left, color: green),
-            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const FontSettingsPage())),
+            leading: Icon(Icons.palette, color: green),
+            title: Text('ألوان التطبيق'),
+            subtitle: Text('اختاري لون التطبيق من عدة ألوان'),
+            trailing: Icon(Icons.chevron_left, color: green),
+            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ThemeColorsPage())),
           ),
           ListTile(
-            leading: const Icon(Icons.access_time, color: green),
-            title: const Text('تعديل الساعة والتاريخ'),
-            subtitle: const Text('ضبط الوقت والتاريخ الميلادي والهجري يدوياً'),
-            trailing: const Icon(Icons.chevron_left, color: green),
-            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ClockSettingsPage())),
+            leading: Icon(Icons.text_fields, color: green),
+            title: Text('إعدادات الخط'),
+            subtitle: Text('الحجم والنوع واللون والتباعد والتشكيل'),
+            trailing: Icon(Icons.chevron_left, color: green),
+            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => FontSettingsPage())),
           ),
-          const ListTile(leading: Icon(Icons.info_outline, color: green), title: Text('عن التطبيق'), subtitle: Text('الطريقة الخلوتية البكرية')),
-          const ListTile(leading: Icon(Icons.offline_bolt, color: green), title: Text('يعمل دون إنترنت'), subtitle: Text('الكتاب والفهرس والنصوص محفوظة داخل التطبيق.')),
+          ListTile(
+            leading: Icon(Icons.access_time, color: green),
+            title: Text('تعديل الساعة والتاريخ'),
+            subtitle: Text('ضبط الوقت والتاريخ الميلادي والهجري يدوياً'),
+            trailing: Icon(Icons.chevron_left, color: green),
+            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ClockSettingsPage())),
+          ),
+          ListTile(leading: Icon(Icons.info_outline, color: green), title: Text('عن التطبيق'), subtitle: Text('الطريقة الخلوتية البكرية')),
+          ListTile(leading: Icon(Icons.offline_bolt, color: green), title: Text('يعمل دون إنترنت'), subtitle: Text('الكتاب والفهرس والنصوص محفوظة داخل التطبيق.')),
         ]),
       );
 }
@@ -823,38 +831,38 @@ class FontSettingsPage extends StatelessWidget {
   const FontSettingsPage({super.key});
 
   Widget _stepper(BuildContext context, String label, String value, VoidCallback minus, VoidCallback plus) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: 6),
+        padding: EdgeInsets.symmetric(vertical: 6),
         child: Row(children: [
-          Expanded(child: Text(label, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600))),
-          IconButton.filledTonal(onPressed: minus, icon: const Icon(Icons.remove)),
-          SizedBox(width: 56, child: Text(value, textAlign: TextAlign.center, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold))),
-          IconButton.filledTonal(onPressed: plus, icon: const Icon(Icons.add)),
+          Expanded(child: Text(label, style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600))),
+          IconButton.filledTonal(onPressed: minus, icon: Icon(Icons.remove)),
+          SizedBox(width: 56, child: Text(value, textAlign: TextAlign.center, style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold))),
+          IconButton.filledTonal(onPressed: plus, icon: Icon(Icons.add)),
         ]),
       );
 
   Widget _section(String t) => Padding(
-        padding: const EdgeInsets.only(top: 16, bottom: 6),
-        child: Text(t, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600)),
+        padding: EdgeInsets.only(top: 16, bottom: 6),
+        child: Text(t, style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600)),
       );
 
   @override
   Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text('إعدادات الخط')),
+        appBar: AppBar(title: Text('إعدادات الخط')),
         body: ValueListenableBuilder<FontCfg>(
           valueListenable: fontCfg,
           builder: (context, c, _) {
             const sample = 'بِسْمِ اللهِ الرَّحْمَنِ الرَّحِيمِ\nالحَمْدُ للهِ رَبِّ العَالَمِينَ';
-            return ListView(padding: const EdgeInsets.all(16), children: [
+            return ListView(padding: EdgeInsets.all(16), children: [
               Container(
-                padding: const EdgeInsets.all(16),
+                padding: EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: isDark(context) ? const Color(0xFF17231F) : Colors.white,
+                  color: isDark(context) ? darkTint(0.14) : Colors.white,
                   borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: const Color(0x55C6A75E)),
+                  border: Border.all(color: Color(0x55C6A75E)),
                 ),
                 child: Text(c.tashkeel ? sample : stripTashkeel(sample), textAlign: TextAlign.center, style: bodyStyle(context)),
               ),
-              const SizedBox(height: 8),
+              SizedBox(height: 8),
               _stepper(context, 'حجم الخط', c.size.round().toString(),
                   () => saveFont(c.copyWith(size: (c.size - 1).clamp(14.0, 40.0))), () => saveFont(c.copyWith(size: (c.size + 1).clamp(14.0, 40.0)))),
               _stepper(context, 'تباعد الكلمات', c.wordSp.round().toString(),
@@ -878,13 +886,13 @@ class FontSettingsPage extends StatelessWidget {
                         height: 40,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          color: colorValues[i] ?? (isDark(context) ? const Color(0xFFE6EEEA) : const Color(0xFF20352E)),
+                          color: colorValues[i] ?? (isDark(context) ? Color(0xFFE6EEEA) : inkLight),
                           border: Border.all(color: c.color == i ? gold : Colors.grey, width: c.color == i ? 3.5 : 1),
                         ),
-                        child: i == 0 ? const Icon(Icons.auto_fix_high, size: 20, color: Colors.grey) : null,
+                        child: i == 0 ? Icon(Icons.auto_fix_high, size: 20, color: Colors.grey) : null,
                       ),
-                      const SizedBox(height: 3),
-                      Text(colorLabels[i], style: const TextStyle(fontSize: 12)),
+                      SizedBox(height: 3),
+                      Text(colorLabels[i], style: TextStyle(fontSize: 12)),
                     ]),
                   ),
               ]),
@@ -892,20 +900,20 @@ class FontSettingsPage extends StatelessWidget {
               Row(children: [
                 Expanded(
                   child: c.tashkeel
-                      ? OutlinedButton.icon(onPressed: () => saveFont(c.copyWith(tashkeel: false)), icon: const Icon(Icons.format_clear), label: const Text('إزالة التشكيل'))
-                      : FilledButton.icon(onPressed: () => saveFont(c.copyWith(tashkeel: false)), icon: const Icon(Icons.format_clear), label: const Text('إزالة التشكيل')),
+                      ? OutlinedButton.icon(onPressed: () => saveFont(c.copyWith(tashkeel: false)), icon: Icon(Icons.format_clear), label: Text('إزالة التشكيل'))
+                      : FilledButton.icon(onPressed: () => saveFont(c.copyWith(tashkeel: false)), icon: Icon(Icons.format_clear), label: Text('إزالة التشكيل')),
                 ),
-                const SizedBox(width: 10),
+                SizedBox(width: 10),
                 Expanded(
                   child: c.tashkeel
-                      ? FilledButton.icon(onPressed: () => saveFont(c.copyWith(tashkeel: true)), icon: const Icon(Icons.text_format), label: const Text('إضافة التشكيل'))
-                      : OutlinedButton.icon(onPressed: () => saveFont(c.copyWith(tashkeel: true)), icon: const Icon(Icons.text_format), label: const Text('إضافة التشكيل')),
+                      ? FilledButton.icon(onPressed: () => saveFont(c.copyWith(tashkeel: true)), icon: Icon(Icons.text_format), label: Text('إضافة التشكيل'))
+                      : OutlinedButton.icon(onPressed: () => saveFont(c.copyWith(tashkeel: true)), icon: Icon(Icons.text_format), label: Text('إضافة التشكيل')),
                 ),
               ]),
-              const SizedBox(height: 20),
-              TextButton.icon(onPressed: () => saveFont(const FontCfg()), icon: const Icon(Icons.restart_alt), label: const Text('استرجاع الإعدادات الأصلية')),
-              const SizedBox(height: 6),
-              const Text('الإعدادات تنطبق على المسبعات والصلوات الدرديرية والمنظومة. كتاب الأوراد صور صفحات فلا يتأثر بها.',
+              SizedBox(height: 20),
+              TextButton.icon(onPressed: () => saveFont(FontCfg()), icon: Icon(Icons.restart_alt), label: Text('استرجاع الإعدادات الأصلية')),
+              SizedBox(height: 6),
+              Text('الإعدادات تنطبق على المسبعات والصلوات الدرديرية والمنظومة. كتاب الأوراد صور صفحات فلا يتأثر بها.',
                   textAlign: TextAlign.center, style: TextStyle(fontSize: 13, height: 1.6)),
             ]);
           },
@@ -986,8 +994,8 @@ class MasbahaPage extends StatelessWidget {
   const MasbahaPage({super.key});
   @override
   Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text('المسبحة')),
-        body: ListView(padding: const EdgeInsets.all(16), children: [
+        appBar: AppBar(title: Text('المسبحة')),
+        body: ListView(padding: EdgeInsets.all(16), children: [
           for (final w in wirdDefs) ...[
             SectionCard(
               title: w.title,
@@ -995,7 +1003,7 @@ class MasbahaPage extends StatelessWidget {
               icon: w.icon,
               onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => WirdPage(def: w))),
             ),
-            const SizedBox(height: 12),
+            SizedBox(height: 12),
           ],
           SectionCard(
             title: namesDef.title,
@@ -1003,12 +1011,12 @@ class MasbahaPage extends StatelessWidget {
             icon: namesDef.icon,
             onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => WirdPage(def: namesDef))),
           ),
-          const SizedBox(height: 12),
+          SizedBox(height: 12),
           SectionCard(
             title: 'سجل الإنجازات',
             subtitle: 'الأذكار التي أكملتها',
             icon: Icons.history,
-            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const LogPage())),
+            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => LogPage())),
           ),
         ]),
       );
@@ -1064,15 +1072,15 @@ class _WirdPageState extends State<WirdPage> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('إضافة ذكر'),
+        title: Text('إضافة ذكر'),
         content: Column(mainAxisSize: MainAxisSize.min, children: [
-          TextField(controller: textC, maxLines: 3, minLines: 1, decoration: const InputDecoration(labelText: 'نص الذكر')),
-          const SizedBox(height: 12),
-          TextField(controller: numC, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'العدد')),
+          TextField(controller: textC, maxLines: 3, minLines: 1, decoration: InputDecoration(labelText: 'نص الذكر')),
+          SizedBox(height: 12),
+          TextField(controller: numC, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: 'العدد')),
         ]),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('إلغاء')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('إضافة')),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text('إلغاء')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text('إضافة')),
         ],
       ),
     );
@@ -1089,11 +1097,11 @@ class _WirdPageState extends State<WirdPage> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('حذف الذكر؟'),
+        title: Text('حذف الذكر؟'),
         content: Text(t.text),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('إلغاء')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('حذف')),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text('إلغاء')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text('حذف')),
         ],
       ),
     );
@@ -1110,8 +1118,8 @@ class _WirdPageState extends State<WirdPage> {
           actions: [
             IconButton(
               tooltip: 'سجل الإنجازات',
-              icon: const Icon(Icons.history),
-              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const LogPage())),
+              icon: Icon(Icons.history),
+              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => LogPage())),
             ),
           ],
         ),
@@ -1119,12 +1127,12 @@ class _WirdPageState extends State<WirdPage> {
           backgroundColor: green,
           foregroundColor: Colors.white,
           onPressed: addDhikr,
-          icon: const Icon(Icons.add),
-          label: const Text('إضافة ذكر'),
+          icon: Icon(Icons.add),
+          label: Text('إضافة ذكر'),
         ),
         body: !loaded
-            ? const Center(child: CircularProgressIndicator())
-            : ListView(padding: const EdgeInsets.fromLTRB(16, 16, 16, 90), children: [
+            ? Center(child: CircularProgressIndicator())
+            : ListView(padding: EdgeInsets.fromLTRB(16, 16, 16, 90), children: [
                 for (final t in all) _taskCard(t),
               ]),
       );
@@ -1134,11 +1142,11 @@ class _WirdPageState extends State<WirdPage> {
     final tg = targets[t.id] ?? t.target;
     final done = c >= tg;
     return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      color: isDark(context) ? const Color(0xFF17231F) : Colors.white,
+      margin: EdgeInsets.only(bottom: 12),
+      color: isDark(context) ? darkTint(0.14) : Colors.white,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(18),
-        side: BorderSide(color: done ? gold : (isDark(context) ? const Color(0xFF2B3D36) : const Color(0xFFD7E2DD)), width: done ? 2 : 1),
+        side: BorderSide(color: done ? gold : (isDark(context) ? darkTint(0.30) : tint(0.20)), width: done ? 2 : 1),
       ),
       child: InkWell(
         borderRadius: BorderRadius.circular(18),
@@ -1147,16 +1155,16 @@ class _WirdPageState extends State<WirdPage> {
           load();
         },
         child: Padding(
-          padding: const EdgeInsets.all(16),
+          padding: EdgeInsets.all(16),
           child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Expanded(child: Text(t.text, style: TextStyle(fontSize: 18, height: 1.9, fontWeight: FontWeight.w600, color: ink(context)))),
-              if (done) const Icon(Icons.check_circle, color: gold),
-              if (t.custom) IconButton(icon: const Icon(Icons.delete_outline), onPressed: () => deleteDhikr(t)),
+              if (done) Icon(Icons.check_circle, color: gold),
+              if (t.custom) IconButton(icon: Icon(Icons.delete_outline), onPressed: () => deleteDhikr(t)),
             ]),
-            const SizedBox(height: 8),
+            SizedBox(height: 8),
             LinearProgressIndicator(value: tg == 0 ? 0 : (c / tg).clamp(0.0, 1.0).toDouble(), minHeight: 8, borderRadius: BorderRadius.circular(8), color: green),
-            const SizedBox(height: 6),
+            SizedBox(height: 6),
             Text('$c / $tg', textAlign: TextAlign.center, style: TextStyle(color: ink(context).withOpacity(0.7))),
           ]),
         ),
@@ -1206,7 +1214,7 @@ class _CounterPageState extends State<CounterPage> {
       HapticFeedback.heavyImpact();
       await addLog(widget.wird, widget.task.text, target);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم الإنجاز وحُفظ في السجل')));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('تم الإنجاز وحُفظ في السجل')));
       }
     }
   }
@@ -1221,11 +1229,11 @@ class _CounterPageState extends State<CounterPage> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('تعديل العدد'),
-        content: TextField(controller: c, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'العدد المطلوب')),
+        title: Text('تعديل العدد'),
+        content: TextField(controller: c, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: 'العدد المطلوب')),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('إلغاء')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('حفظ')),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text('إلغاء')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text('حفظ')),
         ],
       ),
     );
@@ -1246,17 +1254,17 @@ class _CounterPageState extends State<CounterPage> {
     return Scaffold(
       appBar: AppBar(title: Text(widget.wird)),
       body: !ready
-          ? const Center(child: CircularProgressIndicator())
+          ? Center(child: CircularProgressIndicator())
           : Column(children: [
               Container(
                 width: double.infinity,
                 constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.3),
-                margin: const EdgeInsets.all(16),
-                padding: const EdgeInsets.all(16),
+                margin: EdgeInsets.all(16),
+                padding: EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: isDark(context) ? const Color(0x22FFFFFF) : const Color(0xB3FFFFFF),
+                  color: isDark(context) ? Color(0x22FFFFFF) : Color(0xB3FFFFFF),
                   borderRadius: BorderRadius.circular(18),
-                  border: Border.all(color: const Color(0x55C6A75E)),
+                  border: Border.all(color: Color(0x55C6A75E)),
                 ),
                 child: SingleChildScrollView(child: Text(widget.task.text, textAlign: TextAlign.center, style: bodyStyle(context))),
               ),
@@ -1270,7 +1278,7 @@ class _CounterPageState extends State<CounterPage> {
                     onTap: _tap,
                     child: AnimatedScale(
                       scale: pressed ? 0.97 : 1.0,
-                      duration: const Duration(milliseconds: 80),
+                      duration: Duration(milliseconds: 80),
                       child: Container(
                         width: 270,
                         height: 270,
@@ -1278,7 +1286,7 @@ class _CounterPageState extends State<CounterPage> {
                           gradient: LinearGradient(
                             begin: Alignment.topRight,
                             end: Alignment.bottomLeft,
-                            colors: done ? const [Color(0xFF2B8065), Color(0xFF176B50)] : const [Color(0xFF1E8A66), deepGreen],
+                            colors: done ? [lighten(0.12), green] : [lighten(0.10), deepGreen],
                           ),
                           borderRadius: BorderRadius.circular(36),
                           border: Border.all(color: gold, width: 2),
@@ -1286,18 +1294,18 @@ class _CounterPageState extends State<CounterPage> {
                         child: Stack(children: [
                           Positioned.fill(
                             child: Container(
-                              margin: const EdgeInsets.all(10),
+                              margin: EdgeInsets.all(10),
                               decoration: BoxDecoration(
                                 borderRadius: BorderRadius.circular(27),
-                                border: Border.all(color: const Color(0x44C6A75E)),
+                                border: Border.all(color: Color(0x44C6A75E)),
                               ),
                             ),
                           ),
                           Center(
                             child: Column(mainAxisSize: MainAxisSize.min, children: [
-                              Text('$count', style: const TextStyle(color: Colors.white, fontSize: 72, fontWeight: FontWeight.bold, height: 1.1)),
-                              const SizedBox(height: 4),
-                              Text(done ? 'اكتمل' : 'من $target', style: const TextStyle(color: Color(0xFFE6D19A), fontSize: 19)),
+                              Text('$count', style: TextStyle(color: Colors.white, fontSize: 72, fontWeight: FontWeight.bold, height: 1.1)),
+                              SizedBox(height: 4),
+                              Text(done ? 'اكتمل' : 'من $target', style: TextStyle(color: Color(0xFFE6D19A), fontSize: 19)),
                             ]),
                           ),
                           Positioned(
@@ -1310,7 +1318,7 @@ class _CounterPageState extends State<CounterPage> {
                                 value: (count / target).clamp(0.0, 1.0).toDouble(),
                                 minHeight: 8,
                                 color: gold,
-                                backgroundColor: const Color(0x33FFFFFF),
+                                backgroundColor: Color(0x33FFFFFF),
                               ),
                             ),
                           ),
@@ -1321,11 +1329,11 @@ class _CounterPageState extends State<CounterPage> {
                 ),
               ),
               Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+                padding: EdgeInsets.fromLTRB(16, 0, 16, 24),
                 child: Row(children: [
-                  Expanded(child: OutlinedButton.icon(onPressed: _reset, icon: const Icon(Icons.restart_alt), label: const Text('تصفير'))),
-                  const SizedBox(width: 12),
-                  Expanded(child: OutlinedButton.icon(onPressed: _editTarget, icon: const Icon(Icons.edit), label: const Text('تعديل العدد'))),
+                  Expanded(child: OutlinedButton.icon(onPressed: _reset, icon: Icon(Icons.restart_alt), label: Text('تصفير'))),
+                  SizedBox(width: 12),
+                  Expanded(child: OutlinedButton.icon(onPressed: _editTarget, icon: Icon(Icons.edit), label: Text('تعديل العدد'))),
                 ]),
               ),
             ]),
@@ -1363,10 +1371,10 @@ class _LogPageState extends State<LogPage> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('مسح السجل كله؟'),
+        title: Text('مسح السجل كله؟'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('إلغاء')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('مسح')),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text('إلغاء')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text('مسح')),
         ],
       ),
     );
@@ -1380,29 +1388,29 @@ class _LogPageState extends State<LogPage> {
   @override
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(
-          title: const Text('سجل الإنجازات'),
-          actions: [if (rows.isNotEmpty) IconButton(tooltip: 'مسح السجل', icon: const Icon(Icons.delete_sweep), onPressed: _clear)],
+          title: Text('سجل الإنجازات'),
+          actions: [if (rows.isNotEmpty) IconButton(tooltip: 'مسح السجل', icon: Icon(Icons.delete_sweep), onPressed: _clear)],
         ),
         body: !loaded
-            ? const Center(child: CircularProgressIndicator())
+            ? Center(child: CircularProgressIndicator())
             : rows.isEmpty
-                ? const Center(
+                ? Center(
                     child: Padding(
                       padding: EdgeInsets.all(28),
                       child: Text('لا توجد إنجازات بعد. أكملي عدد أي ذكر وسيظهر هنا.', textAlign: TextAlign.center, style: TextStyle(fontSize: 18, height: 1.8)),
                     ),
                   )
                 : ListView.separated(
-                    padding: const EdgeInsets.all(12),
+                    padding: EdgeInsets.all(12),
                     itemCount: rows.length,
-                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    separatorBuilder: (_, __) => Divider(height: 1),
                     itemBuilder: (context, i) {
                       final r = rows[i];
                       return ListTile(
-                        leading: const Icon(Icons.check_circle, color: gold),
-                        title: Text(r[3], style: const TextStyle(fontWeight: FontWeight.w600, height: 1.6)),
+                        leading: Icon(Icons.check_circle, color: gold),
+                        title: Text(r[3], style: TextStyle(fontWeight: FontWeight.w600, height: 1.6)),
                         subtitle: Text('${r[2]} • ${r[0]} ${r[1]}'),
-                        trailing: Text('×${r[4]}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                        trailing: Text('×${r[4]}', style: TextStyle(fontWeight: FontWeight.bold)),
                       );
                     },
                   ),
@@ -1421,7 +1429,7 @@ class _ClockCardState extends State<ClockCard> {
   @override
   void initState() {
     super.initState();
-    timer = Timer.periodic(const Duration(seconds: 1), (_) {
+    timer = Timer.periodic(Duration(seconds: 1), (_) {
       if (mounted) setState(() {});
     });
   }
@@ -1437,23 +1445,23 @@ class _ClockCardState extends State<ClockCard> {
     final t = appNow();
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 26),
+      padding: EdgeInsets.symmetric(horizontal: 20, vertical: 26),
       decoration: BoxDecoration(
-        gradient: const LinearGradient(colors: [deepGreen, green]),
+        gradient: LinearGradient(colors: [deepGreen, green]),
         borderRadius: BorderRadius.circular(24),
         border: Border.all(color: gold),
       ),
       child: Column(children: [
         Directionality(
           textDirection: TextDirection.ltr,
-          child: Text(fmtTime(t), style: const TextStyle(color: Colors.white, fontSize: 44, fontWeight: FontWeight.bold)),
+          child: Text(fmtTime(t), style: TextStyle(color: Colors.white, fontSize: 44, fontWeight: FontWeight.bold)),
         ),
-        const SizedBox(height: 12),
-        Text(fmtGregorian(t), textAlign: TextAlign.center, style: const TextStyle(color: silver, fontSize: 19, height: 1.6)),
-        const SizedBox(height: 4),
-        Text(fmtHijri(t), textAlign: TextAlign.center, style: const TextStyle(color: Color(0xFFE6D19A), fontSize: 19, fontWeight: FontWeight.w600, height: 1.6)),
+        SizedBox(height: 12),
+        Text(fmtGregorian(t), textAlign: TextAlign.center, style: TextStyle(color: silver, fontSize: 19, height: 1.6)),
+        SizedBox(height: 4),
+        Text(fmtHijri(t), textAlign: TextAlign.center, style: TextStyle(color: Color(0xFFE6D19A), fontSize: 19, fontWeight: FontWeight.w600, height: 1.6)),
         if (timeOffset != Duration.zero)
-          const Padding(padding: EdgeInsets.only(top: 8), child: Text('الوقت معدّل يدوياً', style: TextStyle(color: Colors.white60, fontSize: 12))),
+          Padding(padding: EdgeInsets.only(top: 8), child: Text('الوقت معدّل يدوياً', style: TextStyle(color: Colors.white60, fontSize: 12))),
       ]),
     );
   }
@@ -1470,7 +1478,7 @@ class _ClockSettingsPageState extends State<ClockSettingsPage> {
   @override
   void initState() {
     super.initState();
-    timer = Timer.periodic(const Duration(seconds: 1), (_) {
+    timer = Timer.periodic(Duration(seconds: 1), (_) {
       if (mounted) setState(() {});
     });
   }
@@ -1505,51 +1513,51 @@ class _ClockSettingsPageState extends State<ClockSettingsPage> {
   Widget build(BuildContext context) {
     final t = appNow();
     return Scaffold(
-      appBar: AppBar(title: const Text('تعديل الساعة والتاريخ')),
-      body: ListView(padding: const EdgeInsets.all(16), children: [
-        const ClockCard(),
-        const SizedBox(height: 18),
+      appBar: AppBar(title: Text('تعديل الساعة والتاريخ')),
+      body: ListView(padding: EdgeInsets.all(16), children: [
+        ClockCard(),
+        SizedBox(height: 18),
         FilledButton.icon(
-          style: FilledButton.styleFrom(backgroundColor: green, padding: const EdgeInsets.symmetric(vertical: 14)),
+          style: FilledButton.styleFrom(backgroundColor: green, padding: EdgeInsets.symmetric(vertical: 14)),
           onPressed: pickTime,
-          icon: const Icon(Icons.access_time),
-          label: const Text('تعديل الساعة', style: TextStyle(fontSize: 17)),
+          icon: Icon(Icons.access_time),
+          label: Text('تعديل الساعة', style: TextStyle(fontSize: 17)),
         ),
-        const SizedBox(height: 10),
+        SizedBox(height: 10),
         FilledButton.icon(
-          style: FilledButton.styleFrom(backgroundColor: green, padding: const EdgeInsets.symmetric(vertical: 14)),
+          style: FilledButton.styleFrom(backgroundColor: green, padding: EdgeInsets.symmetric(vertical: 14)),
           onPressed: pickDate,
-          icon: const Icon(Icons.calendar_month),
-          label: const Text('تعديل التاريخ الميلادي', style: TextStyle(fontSize: 17)),
+          icon: Icon(Icons.calendar_month),
+          label: Text('تعديل التاريخ الميلادي', style: TextStyle(fontSize: 17)),
         ),
-        const SizedBox(height: 18),
+        SizedBox(height: 18),
         Container(
-          padding: const EdgeInsets.all(14),
+          padding: EdgeInsets.all(14),
           decoration: BoxDecoration(
-            border: Border.all(color: const Color(0x55C6A75E)),
+            border: Border.all(color: Color(0x55C6A75E)),
             borderRadius: BorderRadius.circular(16),
           ),
           child: Column(children: [
             Row(children: [
-              const Expanded(child: Text('تعديل التاريخ الهجري (بالأيام)', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600))),
-              IconButton.filledTonal(onPressed: () async { await saveClock(timeOffset, hijriAdj - 1); setState(() {}); }, icon: const Icon(Icons.remove)),
-              SizedBox(width: 44, child: Text(hijriAdj > 0 ? '+$hijriAdj' : '$hijriAdj', textAlign: TextAlign.center, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold))),
-              IconButton.filledTonal(onPressed: () async { await saveClock(timeOffset, hijriAdj + 1); setState(() {}); }, icon: const Icon(Icons.add)),
+              Expanded(child: Text('تعديل التاريخ الهجري (بالأيام)', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600))),
+              IconButton.filledTonal(onPressed: () async { await saveClock(timeOffset, hijriAdj - 1); setState(() {}); }, icon: Icon(Icons.remove)),
+              SizedBox(width: 44, child: Text(hijriAdj > 0 ? '+$hijriAdj' : '$hijriAdj', textAlign: TextAlign.center, style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold))),
+              IconButton.filledTonal(onPressed: () async { await saveClock(timeOffset, hijriAdj + 1); setState(() {}); }, icon: Icon(Icons.add)),
             ]),
-            const SizedBox(height: 6),
-            Text('التاريخ الهجري الحالي: ${fmtHijri(t)}', style: const TextStyle(fontSize: 13)),
-            const SizedBox(height: 4),
-            const Text('الحساب تقريبي، وقد يختلف يوماً عن رؤية الهلال، فاضبطيه من هنا لو لزم.', textAlign: TextAlign.center, style: TextStyle(fontSize: 12, height: 1.6)),
+            SizedBox(height: 6),
+            Text('التاريخ الهجري الحالي: ${fmtHijri(t)}', style: TextStyle(fontSize: 13)),
+            SizedBox(height: 4),
+            Text('الحساب تقريبي، وقد يختلف يوماً عن رؤية الهلال، فاضبطيه من هنا لو لزم.', textAlign: TextAlign.center, style: TextStyle(fontSize: 12, height: 1.6)),
           ]),
         ),
-        const SizedBox(height: 18),
+        SizedBox(height: 18),
         OutlinedButton.icon(
           onPressed: () async {
             await saveClock(Duration.zero, 0);
             setState(() {});
           },
-          icon: const Icon(Icons.sync),
-          label: const Text('العودة للوقت التلقائي'),
+          icon: Icon(Icons.sync),
+          label: Text('العودة للوقت التلقائي'),
         ),
       ]),
     );
@@ -1621,7 +1629,7 @@ class PoemView extends StatelessWidget {
         children: [
           for (final b in bayts)
             Padding(
-              padding: const EdgeInsets.only(bottom: 10),
+              padding: EdgeInsets.only(bottom: 10),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -1815,7 +1823,7 @@ class KashidaParagraph extends StatelessWidget {
   Widget build(BuildContext context) => LayoutBuilder(builder: (context, box) {
         final lines = kashidaLines(text, style, box.maxWidth - 1);
         return Padding(
-          padding: const EdgeInsets.only(bottom: 6),
+          padding: EdgeInsets.only(bottom: 6),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [for (final l in lines) hiText(context, l, style)],
@@ -1833,26 +1841,26 @@ Widget kashidaPage(BuildContext context, String title, String heading, List<Stri
         gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: dark ? const [Color(0xFF0E1512), Color(0xFF121C18)] : const [Color(0xFFE3EFE9), Color(0xFFF7F3E6)],
+          colors: dark ? [darkTint(0.06), darkTint(0.10)] : [tint(0.16), Color(0xFFF7F3E6)],
         ),
       ),
       child: SelectionArea(
         child: Padding(
-          padding: const EdgeInsets.all(14),
+          padding: EdgeInsets.all(14),
           child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 18),
+            padding: EdgeInsets.symmetric(horizontal: 18),
             decoration: BoxDecoration(
-              color: dark ? const Color(0x22FFFFFF) : const Color(0xB3FFFFFF),
+              color: dark ? Color(0x22FFFFFF) : Color(0xB3FFFFFF),
               borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: const Color(0x55C6A75E)),
+              border: Border.all(color: Color(0x55C6A75E)),
             ),
             child: ListView.builder(
-              padding: const EdgeInsets.only(top: 8, bottom: 16),
+              padding: EdgeInsets.only(top: 8, bottom: 16),
               itemCount: paras.length + 1,
               itemBuilder: (context, i) {
                 if (i == 0) {
                   return Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
+                    padding: EdgeInsets.only(bottom: 8),
                     child: Text(heading, textAlign: TextAlign.center, style: titleStyle(context)),
                   );
                 }
@@ -1898,9 +1906,109 @@ Widget hiText(BuildContext context, String line, TextStyle st) {
   final spans = <InlineSpan>[];
   final words = line.split(' ');
   for (int i = 0; i < words.length; i++) {
-    if (i > 0) spans.add(const TextSpan(text: ' '));
+    if (i > 0) spans.add(TextSpan(text: ' '));
     final w = words[i];
     spans.add(TextSpan(text: w, style: _hasHighlight(w) ? hi : null));
   }
   return Text.rich(TextSpan(style: st, children: spans), maxLines: 1, softWrap: false, overflow: TextOverflow.visible);
+}
+
+
+// ===================== ألوان التطبيق =====================
+class PaletteColor {
+  final String name;
+  final Color color;
+  const PaletteColor(this.name, this.color);
+}
+
+const List<PaletteColor> palettes = [
+  PaletteColor('أخضر زمردي', Color(0xFF176B50)),
+  PaletteColor('أخضر زيتوني', Color(0xFF5B7B2A)),
+  PaletteColor('فيروزي', Color(0xFF0F7C86)),
+  PaletteColor('أزرق ملكي', Color(0xFF1F4E9C)),
+  PaletteColor('أزرق سماوي', Color(0xFF1E88C7)),
+  PaletteColor('نيلي', Color(0xFF3F3D9E)),
+  PaletteColor('بنفسجي', Color(0xFF6A3FA0)),
+  PaletteColor('أرجواني', Color(0xFF9C2F7F)),
+  PaletteColor('وردي', Color(0xFFC2417A)),
+  PaletteColor('أحمر', Color(0xFFB3261E)),
+  PaletteColor('عنابي', Color(0xFF7B1E3A)),
+  PaletteColor('برتقالي', Color(0xFFD2691E)),
+  PaletteColor('ذهبي', Color(0xFFB8860B)),
+  PaletteColor('بني', Color(0xFF6B4423)),
+  PaletteColor('رمادي فحمي', Color(0xFF3F4B52)),
+  PaletteColor('أسود', Color(0xFF1B1B1B)),
+];
+
+final ValueNotifier<int> paletteIdx = ValueNotifier<int>(0);
+
+Color get green => palettes[paletteIdx.value.clamp(0, palettes.length - 1).toInt()].color;
+Color get deepGreen {
+  final h = HSLColor.fromColor(green);
+  return h.withLightness((h.lightness * 0.62).clamp(0.04, 1.0).toDouble()).toColor();
+}
+
+Color get deepDark => Color.alphaBlend(Colors.black.withOpacity(0.45), deepGreen);
+Color get inkLight => Color.alphaBlend(Colors.black.withOpacity(0.72), green);
+Color tint(double a) => Color.alphaBlend(green.withOpacity(a), Colors.white);
+Color darkTint(double a) => Color.alphaBlend(green.withOpacity(a), Color(0xFF0C0F0E));
+Color lighten(double a) => Color.alphaBlend(Colors.white.withOpacity(a), green);
+
+// إعادة بناء كل عناصر الشاشة فوراً ليظهر اللون الجديد في كل الصفحات
+void rebuildAllElements() {
+  void rebuild(Element el) {
+    el.markNeedsBuild();
+    el.visitChildren(rebuild);
+  }
+
+  WidgetsBinding.instance.rootElement?.visitChildren(rebuild);
+}
+
+Future<void> setPalette(int i) async {
+  paletteIdx.value = i;
+  rebuildAllElements();
+  final p = await SharedPreferences.getInstance();
+  await p.setInt('palette', i);
+}
+
+class ThemeColorsPage extends StatelessWidget {
+  const ThemeColorsPage({super.key});
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(title: Text('ألوان التطبيق')),
+        body: ValueListenableBuilder<int>(
+          valueListenable: paletteIdx,
+          builder: (context, sel, _) => ListView(padding: EdgeInsets.all(16), children: [
+            Text('اختاري اللون المفضل، وسيتغير لون التطبيق كله فوراً.', textAlign: TextAlign.center, style: TextStyle(fontSize: 15, height: 1.7)),
+            SizedBox(height: 14),
+            GridView.count(
+              shrinkWrap: true,
+              physics: NeverScrollableScrollPhysics(),
+              crossAxisCount: 3,
+              mainAxisSpacing: 12,
+              crossAxisSpacing: 12,
+              childAspectRatio: 1.15,
+              children: [
+                for (int i = 0; i < palettes.length; i++)
+                  GestureDetector(
+                    onTap: () => setPalette(i),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: palettes[i].color,
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: sel == i ? gold : Color(0x33FFFFFF), width: sel == i ? 3.5 : 1),
+                      ),
+                      child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                        Icon(sel == i ? Icons.check_circle : Icons.circle_outlined, color: Colors.white, size: 28),
+                        SizedBox(height: 6),
+                        Text(palettes[i].name, style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600)),
+                      ]),
+                    ),
+                  ),
+              ],
+            ),
+          ]),
+        ),
+      );
 }
