@@ -26,15 +26,16 @@ const List<Color?> colorValues = [null, Color(0xFF000000), Color(0xFF104A39), Co
 class FontCfg {
   final double size, wordSp, lineH;
   final int family, color;
-  final bool tashkeel;
-  const FontCfg({this.size = 21, this.wordSp = 0, this.lineH = 2.0, this.family = 0, this.color = 0, this.tashkeel = true});
-  FontCfg copyWith({double? size, double? wordSp, double? lineH, int? family, int? color, bool? tashkeel}) => FontCfg(
+  final bool tashkeel, bold;
+  const FontCfg({this.size = 21, this.wordSp = 0, this.lineH = 2.0, this.family = 0, this.color = 0, this.tashkeel = true, this.bold = false});
+  FontCfg copyWith({double? size, double? wordSp, double? lineH, int? family, int? color, bool? tashkeel, bool? bold}) => FontCfg(
         size: size ?? this.size,
         wordSp: wordSp ?? this.wordSp,
         lineH: lineH ?? this.lineH,
         family: family ?? this.family,
         color: color ?? this.color,
         tashkeel: tashkeel ?? this.tashkeel,
+        bold: bold ?? this.bold,
       );
 }
 
@@ -49,6 +50,7 @@ Future<void> saveFont(FontCfg c) async {
   await p.setInt('f_family', c.family);
   await p.setInt('f_color', c.color);
   await p.setBool('f_tashkeel', c.tashkeel);
+  await p.setBool('f_bold', c.bold);
 }
 
 final RegExp _tashkeelRe = RegExp('[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06DC\u06DF-\u06E8\u06EA-\u06ED]');
@@ -62,7 +64,7 @@ TextStyle bodyStyle(BuildContext c) {
     wordSpacing: cfg.wordSp,
     fontFamily: fontFamilies[cfg.family],
     color: colorValues[cfg.color] ?? ink(c),
-    fontWeight: FontWeight.w500,
+    fontWeight: cfg.bold ? FontWeight.w800 : FontWeight.w500,
   );
 }
 
@@ -148,6 +150,7 @@ Future<void> loadFavorites() async {
     family: (p.getInt('f_family') ?? 0).clamp(0, fontFamilies.length - 1).toInt(),
     color: (p.getInt('f_color') ?? 0).clamp(0, colorValues.length - 1).toInt(),
     tashkeel: p.getBool('f_tashkeel') ?? true,
+    bold: p.getBool('f_bold') ?? false,
   );
 }
 
@@ -317,6 +320,8 @@ class HomePage extends StatelessWidget {
         ),
         body: ListView(padding: EdgeInsets.all(18), children: [
           ClockCard(),
+          SizedBox(height: 14),
+          ThanksCard(),
           SizedBox(height: 20),
           SectionCard(
             title: 'كتاب أوراد الطريقة',
@@ -907,6 +912,14 @@ class FontSettingsPage extends StatelessWidget {
                     ]),
                   ),
               ]),
+              _section('سمك الخط'),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                secondary: Icon(Icons.format_bold, color: green),
+                title: Text('خط بولد (سميك)'),
+                value: c.bold,
+                onChanged: (v) => saveFont(c.copyWith(bold: v)),
+              ),
               _section('التشكيل'),
               Row(children: [
                 Expanded(
@@ -2059,3 +2072,56 @@ const String hizbAlBahrText = r'''حزب البحر
 أعوذ بكلمات الله التامات كلها من شر ما خلق (3 مرات)
 ولا حول ولا قوة إلا بالله العلي العظيم.
 وصلى الله على سيدنا محمد وآله وصحبه وسلم.''';
+
+
+// ===================== بطاقة الدعاء للشيخ =====================
+class ThanksCard extends StatelessWidget {
+  const ThanksCard({super.key});
+
+  Widget _ornament(Color c) => Row(children: [
+        Expanded(child: Container(height: 1.2, color: c.withOpacity(0.55))),
+        Padding(
+          padding: EdgeInsets.symmetric(horizontal: 10),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Transform.rotate(angle: 0.785398, child: Container(width: 6, height: 6, color: c)),
+            SizedBox(width: 6),
+            Transform.rotate(angle: 0.785398, child: Container(width: 9, height: 9, decoration: BoxDecoration(border: Border.all(color: c, width: 1.4)))),
+            SizedBox(width: 6),
+            Transform.rotate(angle: 0.785398, child: Container(width: 6, height: 6, color: c)),
+          ]),
+        ),
+        Expanded(child: Container(height: 1.2, color: c.withOpacity(0.55))),
+      ]);
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = isDark(context);
+    final plain = TextStyle(fontFamily: 'serif', fontSize: 21, height: 1.9, fontWeight: FontWeight.w600, color: ink(context).withOpacity(0.85));
+    final name = TextStyle(
+      fontFamily: 'serif',
+      fontSize: 29,
+      height: 1.7,
+      fontWeight: FontWeight.w800,
+      color: dark ? Color(0xFFE6D19A) : deepGreen,
+      shadows: [Shadow(color: gold.withOpacity(0.45), blurRadius: 6, offset: Offset(0, 1.5))],
+    );
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.fromLTRB(18, 14, 18, 14),
+      decoration: BoxDecoration(
+        color: dark ? darkTint(0.10) : Color.alphaBlend(gold.withOpacity(0.10), Colors.white),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: gold.withOpacity(0.8), width: 1.4),
+      ),
+      child: Column(children: [
+        _ornament(gold),
+        SizedBox(height: 8),
+        Text('جزى الله شيخنا', textAlign: TextAlign.center, style: plain),
+        Text('السيد: عبدالعليم جودة البكري', textAlign: TextAlign.center, style: name),
+        Text('خير الجزاء', textAlign: TextAlign.center, style: plain),
+        SizedBox(height: 8),
+        _ornament(gold),
+      ]),
+    );
+  }
+}
