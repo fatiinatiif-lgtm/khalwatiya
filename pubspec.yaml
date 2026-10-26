@@ -24,3 +24,26 @@ flutter:
     - assets/texts/salawat_dardiriyya.txt
     - assets/texts/manzuma.txt
     - assets/icon/app_icon.png
+  fonts:
+    - family: Ario
+      fonts:
+        - asset: Ario_Regular.ttf
+    - family: Mataryah
+      fonts:
+        - asset: Mataryah_Regular.ttf
+    - family: Rsail
+      fonts:
+        - asset: Rsail_Light.otf
+          weight: 300
+        - asset: Rsail_Regular.otf
+          weight: 400
+        - asset: Rsail_Bold.otf
+          weight: 700
+    - family: AirArabia
+      fonts:
+        - asset: AirArabia_Light.ttf
+          weight: 300
+        - asset: AirArabia_Regular.ttf
+          weight: 400
+        - asset: AirArabia_Bold.ttf
+          weight: 700

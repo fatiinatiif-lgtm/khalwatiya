@@ -18,8 +18,8 @@ Color accent(BuildContext c) => isDark(c) ? lighten(0.45) : deepGreen;
 Color softBg(BuildContext c) => isDark(c) ? darkTint(0.22) : tint(0.12);
 
 // ===== إعدادات الخط (موحدة لكل صفحات النصوص) =====
-const List<String> fontLabels = ['الافتراضي', 'سيريف', 'سانس', 'كاجوال', 'مائل'];
-const List<String?> fontFamilies = [null, 'serif', 'sans-serif', 'casual', 'cursive'];
+const List<String> fontLabels = ['الافتراضي', 'سيريف', 'سانس', 'كاجوال', 'مائل', 'أريو', 'مطرية', 'رسيل', 'إير أرابيا'];
+const List<String?> fontFamilies = [null, 'serif', 'sans-serif', 'casual', 'cursive', 'Ario', 'Mataryah', 'Rsail', 'AirArabia'];
 const List<String> colorLabels = ['تلقائي', 'أسود', 'أخضر داكن', 'أزرق داكن', 'بني', 'ذهبي', 'أبيض'];
 const List<Color?> colorValues = [null, Color(0xFF000000), Color(0xFF104A39), Color(0xFF14397A), Color(0xFF5B3A1E), Color(0xFF9A7B22), Color(0xFFFFFFFF)];
 
@@ -889,7 +889,7 @@ class FontSettingsPage extends StatelessWidget {
               _section('نوع الخط'),
               Wrap(spacing: 8, runSpacing: 8, children: [
                 for (int i = 0; i < fontLabels.length; i++)
-                  ChoiceChip(label: Text(fontLabels[i]), selected: c.family == i, onSelected: (_) => saveFont(c.copyWith(family: i))),
+                  ChoiceChip(label: Text(fontLabels[i], style: TextStyle(fontFamily: fontFamilies[i], fontSize: 16)), selected: c.family == i, onSelected: (_) => saveFont(c.copyWith(family: i))),
               ]),
               _section('لون الخط'),
               Wrap(spacing: 10, runSpacing: 10, children: [
@@ -2096,12 +2096,12 @@ class ThanksCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final dark = isDark(context);
-    final plain = TextStyle(fontFamily: 'serif', fontSize: 21, height: 1.9, fontWeight: FontWeight.w600, color: ink(context).withOpacity(0.85));
+    final plain = TextStyle(fontFamily: 'Rsail', fontSize: 23, height: 1.9, fontWeight: FontWeight.w400, color: ink(context).withOpacity(0.9));
     final name = TextStyle(
-      fontFamily: 'serif',
-      fontSize: 29,
+      fontFamily: 'Rsail',
+      fontSize: 31,
       height: 1.7,
-      fontWeight: FontWeight.w800,
+      fontWeight: FontWeight.w700,
       color: dark ? Color(0xFFE6D19A) : deepGreen,
       shadows: [Shadow(color: gold.withOpacity(0.45), blurRadius: 6, offset: Offset(0, 1.5))],
     );
