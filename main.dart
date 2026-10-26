@@ -426,10 +426,99 @@ Future<void> openText(BuildContext context, String title, String asset, bool poe
   Navigator.push(context, MaterialPageRoute(builder: (_) => TextReaderPage(title: title, text: text, poem: poem)));
 }
 
-class TextReaderPage extends StatelessWidget {
+class TextReaderPage extends StatefulWidget {
   final String title, text;
   final bool poem;
   const TextReaderPage({super.key, required this.title, required this.text, required this.poem});
+  @override
+  State<TextReaderPage> createState() => _TextReaderPageState();
+}
+
+class _TextReaderPageState extends State<TextReaderPage> {
+  int bm = -1; // رقم الفقرة/البيت الذي عليه علامة مكان التوقف
+  final ScrollController sc = ScrollController();
+  final Map<int, GlobalKey> keys = {};
+
+  String get prefKey => 'bm_${widget.title}';
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void dispose() {
+    sc.dispose();
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    final p = await SharedPreferences.getInstance();
+    final v = p.getInt(prefKey) ?? -1;
+    if (mounted) setState(() => bm = v);
+  }
+
+  GlobalKey _key(int i) => keys.putIfAbsent(i, () => GlobalKey());
+
+  void _msg(String m) {
+    final sm = ScaffoldMessenger.of(context);
+    sm.hideCurrentSnackBar();
+    sm.showSnackBar(SnackBar(duration: Duration(seconds: 2), content: Text(m)));
+  }
+
+  Future<void> _toggle(int i) async {
+    final p = await SharedPreferences.getInstance();
+    if (bm == i) {
+      setState(() => bm = -1);
+      await p.remove(prefKey);
+      _msg('تمت إزالة العلامة');
+    } else {
+      setState(() => bm = i);
+      await p.setInt(prefKey, i);
+      _msg('تم وضع علامة مكان التوقف');
+    }
+  }
+
+  // الانتقال إلى مكان العلامة (مع تصحيح تدريجي لأن ارتفاع الفقرات مختلف)
+  Future<void> _goTo(int count) async {
+    final i = bm;
+    if (i < 0 || i >= count) {
+      _msg('اضغطي ضغطة طويلة على أي سطر لوضع علامة مكان التوقف');
+      return;
+    }
+    for (int attempt = 0; attempt < 12; attempt++) {
+      if (!mounted) return;
+      final ctx = keys[i]?.currentContext;
+      if (ctx != null) {
+        await Scrollable.ensureVisible(ctx, alignment: 0.12, duration: Duration(milliseconds: 250), curve: Curves.easeOut);
+        return;
+      }
+      if (!sc.hasClients) return;
+      final max = sc.position.maxScrollExtent;
+      int? near;
+      double sum = 0;
+      int n = 0;
+      for (final e in keys.entries) {
+        final c = e.value.currentContext;
+        if (c == null) continue;
+        sum += c.size?.height ?? 0;
+        n++;
+        if (near == null || (e.key - i).abs() < (near - i).abs()) near = e.key;
+      }
+      double dest;
+      if (near == null || n == 0) {
+        dest = max * (i / count);
+      } else {
+        final ro = keys[near]!.currentContext!.findRenderObject();
+        if (ro == null) return;
+        final off = RenderAbstractViewport.of(ro).getOffsetToReveal(ro, 0.0).offset;
+        dest = off + (i - near) * (sum / n);
+      }
+      sc.jumpTo(dest.clamp(0.0, max).toDouble());
+      await WidgetsBinding.instance.endOfFrame;
+    }
+  }
 
   @override
   Widget build(BuildContext context) => ValueListenableBuilder<FontCfg>(
@@ -438,52 +527,130 @@ class TextReaderPage extends StatelessWidget {
       );
 
   Widget _page(BuildContext context, FontCfg cfg) {
-    final t = cfg.tashkeel ? text : stripTashkeel(text);
+    final t = cfg.tashkeel ? widget.text : stripTashkeel(widget.text);
     final lines = t.split('\n').map((l) => l.trim()).where((l) => l.isNotEmpty).toList();
-    final heading = lines.isNotEmpty ? lines.first : title;
+    final heading = lines.isNotEmpty ? lines.first : widget.title;
     final body = lines.length > 1 ? lines.sublist(1) : <String>[];
     final dark = isDark(context);
-    if (!poem) return kashidaPage(context, title, heading, body, dark);
+    final count = widget.poem ? (body.length + 1) ~/ 2 : body.length;
+    final hasMark = bm >= 0 && bm < count;
 
-    final Widget content = Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Text(heading, textAlign: TextAlign.center, style: titleStyle(context)),
-        SizedBox(height: 8),
-        if (poem)
-          PoemView(lines: body, cfg: cfg)
-        else
-          Text(body.join('\n'), textAlign: TextAlign.justify, style: bodyStyle(context)),
+    final appBar = AppBar(
+      title: Text(widget.title),
+      actions: [
+        IconButton(
+          tooltip: 'مكان التوقف',
+          icon: Icon(hasMark ? Icons.bookmark : Icons.bookmark_border),
+          onPressed: () => _goTo(count),
+        ),
       ],
     );
+    final bg = BoxDecoration(
+      gradient: LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: dark ? [darkTint(0.06), darkTint(0.10)] : [tint(0.16), Color(0xFFF7F3E6)],
+      ),
+    );
+    final cardDeco = BoxDecoration(
+      color: dark ? Color(0x22FFFFFF) : Color(0xB3FFFFFF),
+      borderRadius: BorderRadius.circular(20),
+      border: Border.all(color: Color(0x55C6A75E)),
+    );
 
-    return Scaffold(
-      appBar: AppBar(title: Text(title)),
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: dark ? [darkTint(0.06), darkTint(0.10)] : [tint(0.16), Color(0xFFF7F3E6)],
-          ),
-        ),
-        child: SelectionArea(
+    if (widget.poem) {
+      return Scaffold(
+        appBar: appBar,
+        body: Container(
+          decoration: bg,
           child: SingleChildScrollView(
+            controller: sc,
             padding: EdgeInsets.fromLTRB(14, 14, 14, 30),
             child: Container(
-              padding: EdgeInsets.symmetric(horizontal: poem ? 12 : 22, vertical: 16),
-              decoration: BoxDecoration(
-                color: dark ? Color(0x22FFFFFF) : Color(0xB3FFFFFF),
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: Color(0x55C6A75E)),
+              padding: EdgeInsets.symmetric(horizontal: 12, vertical: 16),
+              decoration: cardDeco,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(heading, textAlign: TextAlign.center, style: titleStyle(context)),
+                  SizedBox(height: 8),
+                  PoemView(lines: body, cfg: cfg, marked: hasMark ? bm : -1, onMark: _toggle, keyFor: _key),
+                ],
               ),
-              child: content,
+            ),
+          ),
+        ),
+      );
+    }
+
+    final st = bodyStyle(context);
+    return Scaffold(
+      appBar: appBar,
+      body: Container(
+        decoration: bg,
+        child: Padding(
+          padding: EdgeInsets.all(14),
+          child: Container(
+            padding: EdgeInsets.symmetric(horizontal: 18),
+            decoration: cardDeco,
+            child: ListView.builder(
+              controller: sc,
+              padding: EdgeInsets.only(top: 8, bottom: 16),
+              itemCount: body.length + 1,
+              itemBuilder: (context, i) {
+                if (i == 0) {
+                  return Padding(
+                    padding: EdgeInsets.only(bottom: 8),
+                    child: Text(heading, textAlign: TextAlign.center, style: titleStyle(context)),
+                  );
+                }
+                final idx = i - 1;
+                return markWrap(
+                  key: _key(idx),
+                  marked: hasMark && bm == idx,
+                  onLongPress: () => _toggle(idx),
+                  iconSize: 16,
+                  child: KashidaParagraph(text: body[idx], style: st),
+                );
+              },
             ),
           ),
         ),
       ),
     );
   }
+}
+
+// تغليف فقرة/بيت: ضغطة طويلة لوضع/إزالة علامة مكان التوقف (شريط ذهبي + أيقونة علامة)
+Widget markWrap({required Key key, required bool marked, required VoidCallback onLongPress, required double iconSize, required Widget child}) {
+  return GestureDetector(
+    key: key,
+    behavior: HitTestBehavior.translucent,
+    onLongPress: onLongPress,
+    child: Stack(clipBehavior: Clip.none, children: [
+      child,
+      if (marked)
+        Positioned.fill(
+          child: IgnorePointer(
+            child: Container(decoration: BoxDecoration(color: gold.withOpacity(0.16), borderRadius: BorderRadius.circular(10))),
+          ),
+        ),
+      if (marked)
+        PositionedDirectional(
+          start: 0,
+          top: 2,
+          bottom: 2,
+          width: 4,
+          child: IgnorePointer(child: Container(decoration: BoxDecoration(color: gold, borderRadius: BorderRadius.circular(2)))),
+        ),
+      if (marked)
+        PositionedDirectional(
+          start: -iconSize - 2,
+          top: 0,
+          child: IgnorePointer(child: Icon(Icons.bookmark, color: gold, size: iconSize)),
+        ),
+    ]),
+  );
 }
 
 class IndexEntry {
@@ -1594,7 +1761,10 @@ class _ClockSettingsPageState extends State<ClockSettingsPage> {
 class PoemView extends StatelessWidget {
   final List<String> lines;
   final FontCfg cfg;
-  const PoemView({super.key, required this.lines, required this.cfg});
+  final int marked;
+  final void Function(int) onMark;
+  final GlobalKey Function(int) keyFor;
+  const PoemView({super.key, required this.lines, required this.cfg, required this.marked, required this.onMark, required this.keyFor});
 
   static const String indent = '\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0'; // 8 مسافات
 
@@ -1651,19 +1821,25 @@ class PoemView extends StatelessWidget {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          for (final b in bayts)
-            Padding(
-              padding: EdgeInsets.only(bottom: 10),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  hiText(context, b[0], st),
-                  if (b[1].isNotEmpty)
-                    Padding(
-                      padding: EdgeInsetsDirectional.only(start: indentW),
-                      child: hiText(context, tw > 0.5 ? justifyLineKashida(b[1], st, ajzW, tw, cap: 6) : b[1], st),
-                    ),
-                ],
+          for (final e in bayts.asMap().entries)
+            markWrap(
+              key: keyFor(e.key),
+              marked: marked == e.key,
+              onLongPress: () => onMark(e.key),
+              iconSize: 14,
+              child: Padding(
+                padding: EdgeInsets.only(bottom: 10),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    hiText(context, e.value[0], st),
+                    if (e.value[1].isNotEmpty)
+                      Padding(
+                        padding: EdgeInsetsDirectional.only(start: indentW),
+                        child: hiText(context, tw > 0.5 ? justifyLineKashida(e.value[1], st, ajzW, tw, cap: 6) : e.value[1], st),
+                      ),
+                  ],
+                ),
               ),
             ),
         ],
