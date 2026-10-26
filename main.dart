@@ -1588,6 +1588,10 @@ class PoemView extends StatelessWidget {
         size = lo;
       }
       final st = base.copyWith(fontSize: size);
+      // العجز: يبدأ بعد 8 مسافات، ويُمَدّ بالكشيدة لتنتهي كل الأعجاز عند نفس الحافة اليسرى
+      final indentW = _w(st, indent);
+      final tw = _w(st, '\u0640' * 10) / 10;
+      final ajzW = avail - indentW;
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1598,7 +1602,17 @@ class PoemView extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(b[0], style: st, maxLines: 1, softWrap: false, overflow: TextOverflow.visible),
-                  if (b[1].isNotEmpty) Text(indent + b[1], style: st, maxLines: 1, softWrap: false, overflow: TextOverflow.visible),
+                  if (b[1].isNotEmpty)
+                    Padding(
+                      padding: EdgeInsetsDirectional.only(start: indentW),
+                      child: Text(
+                        tw > 0.5 ? justifyLineKashida(b[1], st, ajzW, tw, cap: 6) : b[1],
+                        style: st,
+                        maxLines: 1,
+                        softWrap: false,
+                        overflow: TextOverflow.visible,
+                      ),
+                    ),
                 ],
               ),
             ),
@@ -1707,14 +1721,13 @@ String _applyKashida(String s, List<int> slots, List<int> cnt) {
   return b.toString();
 }
 
-String justifyLineKashida(String line, TextStyle st, double maxW, double tw) {
+String justifyLineKashida(String line, TextStyle st, double maxW, double tw, {int cap = 3}) {
   final nat = _measure(st, line);
   final deficit = maxW - nat;
   if (deficit < tw * 0.8) return line;
   final slots = kashidaSlots(line);
   final m = slots.length;
   if (m == 0) return line;
-  const cap = 3;
   final cnt = _spread(m, math.min((deficit / tw).floor(), cap * m), cap);
   var res = _applyKashida(line, slots, cnt);
   for (int it = 0; it < 4; it++) {
