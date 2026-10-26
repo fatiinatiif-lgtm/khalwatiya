@@ -1601,17 +1601,11 @@ class PoemView extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(b[0], style: st, maxLines: 1, softWrap: false, overflow: TextOverflow.visible),
+                  hiText(context, b[0], st),
                   if (b[1].isNotEmpty)
                     Padding(
                       padding: EdgeInsetsDirectional.only(start: indentW),
-                      child: Text(
-                        tw > 0.5 ? justifyLineKashida(b[1], st, ajzW, tw, cap: 6) : b[1],
-                        style: st,
-                        maxLines: 1,
-                        softWrap: false,
-                        overflow: TextOverflow.visible,
-                      ),
+                      child: hiText(context, tw > 0.5 ? justifyLineKashida(b[1], st, ajzW, tw, cap: 6) : b[1], st),
                     ),
                 ],
               ),
@@ -1800,7 +1794,7 @@ class KashidaParagraph extends StatelessWidget {
           padding: const EdgeInsets.only(bottom: 6),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
-            children: [for (final l in lines) Text(l, style: style, maxLines: 1, softWrap: false, overflow: TextOverflow.visible)],
+            children: [for (final l in lines) hiText(context, l, style)],
           ),
         );
       });
@@ -1846,4 +1840,43 @@ Widget kashidaPage(BuildContext context, String title, String heading, List<Stri
       ),
     ),
   );
+}
+
+
+// ===================== تلوين الكلمات المميزة =====================
+const Set<String> highlightWords = {'الله', 'اللهم', 'الهي', 'الهنا', 'يارب', 'رب', 'ربي', 'ياربي', 'صل'};
+
+Color highlightColor(BuildContext c) => isDark(c) ? const Color(0xFFFF8A80) : const Color(0xFFC0392B);
+
+String _normWord(String w) {
+  var t = stripTashkeel(w).replaceAll('\u0640', '');
+  t = t.replaceAll(RegExp('[\u0623\u0625\u0622\u0671]'), '\u0627');
+  return t.replaceAll(RegExp('[^\u0621-\u064A]'), '');
+}
+
+// تتلون الكلمة لو بدأت بإحدى الكلمات المميزة، بعد تجاهل حرفين على الأكثر من حروف و/ف/ب/ل (والله، بالله، لربنا...)
+bool _hasHighlight(String w) {
+  final n = _normWord(w);
+  if (n.isEmpty) return false;
+  for (int skip = 0; skip <= 2 && skip < n.length; skip++) {
+    if (skip > 0 && !'وفبل'.contains(n[skip - 1])) break;
+    final rest = n.substring(skip);
+    for (final h in highlightWords) {
+      if (rest.startsWith(h)) return true;
+    }
+  }
+  return false;
+}
+
+// سطر واحد: الكلمات المميزة بلون مختلف (اللون فقط، دون تغيير العرض أو الوزن حتى لا يتأثر الضبط)
+Widget hiText(BuildContext context, String line, TextStyle st) {
+  final hi = st.copyWith(color: highlightColor(context));
+  final spans = <InlineSpan>[];
+  final words = line.split(' ');
+  for (int i = 0; i < words.length; i++) {
+    if (i > 0) spans.add(const TextSpan(text: ' '));
+    final w = words[i];
+    spans.add(TextSpan(text: w, style: _hasHighlight(w) ? hi : null));
+  }
+  return Text.rich(TextSpan(style: st, children: spans), maxLines: 1, softWrap: false, overflow: TextOverflow.visible);
 }
