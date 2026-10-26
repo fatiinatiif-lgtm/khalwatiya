@@ -140,6 +140,7 @@ Future<void> loadFavorites() async {
   final p = await SharedPreferences.getInstance();
   favorites.value = p.getStringList('favorites') ?? [];
   darkMode.value = p.getBool('dark') ?? false;
+  lastPdfPage.value = p.getInt('pdf_last') ?? 0;
   paletteIdx.value = (p.getInt('palette') ?? 0).clamp(0, palettes.length - 1).toInt();
   timeOffset = Duration(milliseconds: p.getInt('clock_off_ms') ?? 0);
   hijriAdj = p.getInt('hijri_adj') ?? 0;
@@ -323,6 +324,20 @@ class HomePage extends StatelessWidget {
           SizedBox(height: 14),
           ThanksCard(),
           SizedBox(height: 20),
+          ValueListenableBuilder<int>(
+            valueListenable: lastPdfPage,
+            builder: (context, v, _) => v > 0
+                ? Padding(
+                    padding: EdgeInsets.only(bottom: 12),
+                    child: SectionCard(
+                      title: 'متابعة قراءة كتاب الأوراد',
+                      subtitle: 'أكملي من صفحة $v',
+                      icon: Icons.bookmark_added,
+                      onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => PdfReaderPage(initialPage: v))),
+                    ),
+                  )
+                : SizedBox.shrink(),
+          ),
           SectionCard(
             title: 'كتاب أوراد الطريقة',
             subtitle: 'افتح الكتاب أو تصفح الفهرس للوصول إلى العناوين',
@@ -438,6 +453,10 @@ class _TextReaderPageState extends State<TextReaderPage> {
   int bm = -1; // رقم الفقرة/البيت الذي عليه علامة مكان التوقف
   final ScrollController sc = ScrollController();
   final Map<int, GlobalKey> keys = {};
+  bool auto = false;
+  int speedLevel = 3;
+  Timer? autoTimer;
+  static const List<double> speeds = [12, 22, 35, 50, 75, 110]; // بكسل/ثانية
 
   String get prefKey => 'bm_${widget.title}';
 
@@ -449,6 +468,7 @@ class _TextReaderPageState extends State<TextReaderPage> {
 
   @override
   void dispose() {
+    autoTimer?.cancel();
     sc.dispose();
     super.dispose();
   }
@@ -456,8 +476,72 @@ class _TextReaderPageState extends State<TextReaderPage> {
   Future<void> _load() async {
     final p = await SharedPreferences.getInstance();
     final v = p.getInt(prefKey) ?? -1;
-    if (mounted) setState(() => bm = v);
+    final sp = (p.getInt('auto_speed') ?? 3).clamp(1, speeds.length).toInt();
+    if (mounted) {
+      setState(() {
+        bm = v;
+        speedLevel = sp;
+      });
+    }
   }
+
+  void _startAuto() {
+    if (!sc.hasClients) return;
+    setState(() => auto = true);
+    autoTimer?.cancel();
+    var last = DateTime.now();
+    autoTimer = Timer.periodic(Duration(milliseconds: 16), (t) {
+      if (!sc.hasClients) return;
+      final now = DateTime.now();
+      final dt = now.difference(last).inMicroseconds / 1000000.0;
+      last = now;
+      if (sc.position.extentAfter < 1) {
+        _stopAuto();
+        return;
+      }
+      final next = sc.offset + speeds[speedLevel - 1] * dt;
+      sc.jumpTo(math.min(next, sc.position.maxScrollExtent));
+    });
+  }
+
+  void _stopAuto() {
+    autoTimer?.cancel();
+    autoTimer = null;
+    if (mounted && auto) setState(() => auto = false);
+  }
+
+  Future<void> _setSpeed(int lv) async {
+    setState(() => speedLevel = lv.clamp(1, speeds.length).toInt());
+    final p = await SharedPreferences.getInstance();
+    await p.setInt('auto_speed', speedLevel);
+  }
+
+  Widget _withAutoBar(Widget w) => Stack(children: [
+        Listener(behavior: HitTestBehavior.translucent, onPointerDown: (_) {
+          if (auto) _stopAuto();
+        }, child: w),
+        if (auto)
+          Positioned(
+            left: 16,
+            right: 16,
+            bottom: 16,
+            child: Material(
+              elevation: 6,
+              color: deepGreen,
+              borderRadius: BorderRadius.circular(30),
+              child: Padding(
+                padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                  IconButton(tooltip: 'أبطأ', color: Colors.white, icon: Icon(Icons.remove_circle_outline), onPressed: () => _setSpeed(speedLevel - 1)),
+                  Text('السرعة $speedLevel', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600)),
+                  IconButton(tooltip: 'أسرع', color: Colors.white, icon: Icon(Icons.add_circle_outline), onPressed: () => _setSpeed(speedLevel + 1)),
+                  SizedBox(width: 8),
+                  IconButton(tooltip: 'إيقاف', color: Color(0xFFE6D19A), icon: Icon(Icons.pause_circle_filled, size: 34), onPressed: _stopAuto),
+                ]),
+              ),
+            ),
+          ),
+      ]);
 
   GlobalKey _key(int i) => keys.putIfAbsent(i, () => GlobalKey());
 
@@ -510,10 +594,12 @@ class _TextReaderPageState extends State<TextReaderPage> {
       if (near == null || n == 0) {
         dest = max * (i / count);
       } else {
-        final ro = keys[near]!.currentContext!.findRenderObject();
-        if (ro == null) return;
-        final off = RenderAbstractViewport.of(ro).getOffsetToReveal(ro, 0.0).offset;
-        dest = off + (i - near) * (sum / n);
+        final nctx = keys[near]!.currentContext!;
+        final ro = nctx.findRenderObject();
+        final vp = Scrollable.of(nctx).context.findRenderObject();
+        if (ro is! RenderBox || vp == null) return;
+        final dy = ro.localToGlobal(Offset.zero, ancestor: vp).dy;
+        dest = sc.offset + dy + (i - near) * (sum / n);
       }
       sc.jumpTo(dest.clamp(0.0, max).toDouble());
       await WidgetsBinding.instance.endOfFrame;
@@ -539,6 +625,11 @@ class _TextReaderPageState extends State<TextReaderPage> {
       title: Text(widget.title),
       actions: [
         IconButton(
+          tooltip: 'تمرير تلقائي',
+          icon: Icon(auto ? Icons.pause_circle_filled : Icons.play_circle_outline),
+          onPressed: () => auto ? _stopAuto() : _startAuto(),
+        ),
+        IconButton(
           tooltip: 'مكان التوقف',
           icon: Icon(hasMark ? Icons.bookmark : Icons.bookmark_border),
           onPressed: () => _goTo(count),
@@ -561,7 +652,7 @@ class _TextReaderPageState extends State<TextReaderPage> {
     if (widget.poem) {
       return Scaffold(
         appBar: appBar,
-        body: Container(
+        body: _withAutoBar(Container(
           decoration: bg,
           child: SingleChildScrollView(
             controller: sc,
@@ -579,14 +670,14 @@ class _TextReaderPageState extends State<TextReaderPage> {
               ),
             ),
           ),
-        ),
+        )),
       );
     }
 
     final st = bodyStyle(context);
     return Scaffold(
       appBar: appBar,
-      body: Container(
+      body: _withAutoBar(Container(
         decoration: bg,
         child: Padding(
           padding: EdgeInsets.all(14),
@@ -616,7 +707,7 @@ class _TextReaderPageState extends State<TextReaderPage> {
             ),
           ),
         ),
-      ),
+      )),
     );
   }
 }
@@ -812,6 +903,7 @@ class _PdfReaderPageState extends State<PdfReaderPage> {
     final c = p.clamp(1, doc!.pagesCount).toInt();
     if (c != current) {
       setState(() => current = c);
+      saveLastPdf(c);
       cache.removeWhere((k, _) => (k + 1 - c).abs() > 8);
     }
   }
@@ -819,6 +911,10 @@ class _PdfReaderPageState extends State<PdfReaderPage> {
   @override
   void dispose() {
     _disposed = true;
+    if (doc != null) {
+      final last = current;
+      Future.microtask(() => saveLastPdf(last));
+    }
     sc?.dispose();
     doc?.close();
     super.dispose();
@@ -1161,7 +1257,7 @@ Future<void> addLog(String wird, String text, int count) async {
   final list = p.getStringList('m_log') ?? [];
   final n = DateTime.now();
   list.insert(0, [todayKey(), '${_two(n.hour)}:${_two(n.minute)}', wird, text, '$count'].join('\t'));
-  if (list.length > 500) list.removeRange(500, list.length);
+  if (list.length > 3000) list.removeRange(3000, list.length);
   await p.setStringList('m_log', list);
 }
 
@@ -1201,6 +1297,13 @@ class MasbahaPage extends StatelessWidget {
             subtitle: 'لا إله إلا الله • الله • هو • حق • حي • قيوم • قهار',
             icon: namesDef.icon,
             onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => WirdPage(def: namesDef))),
+          ),
+          SizedBox(height: 12),
+          SectionCard(
+            title: 'الإحصائيات',
+            subtitle: 'الأيام المتتالية وعدد الأذكار',
+            icon: Icons.bar_chart_rounded,
+            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => StatsPage())),
           ),
           SizedBox(height: 12),
           SectionCard(
@@ -2300,4 +2403,174 @@ class ThanksCard extends StatelessWidget {
       ]),
     );
   }
+}
+
+
+// ===================== متابعة قراءة الكتاب =====================
+final ValueNotifier<int> lastPdfPage = ValueNotifier<int>(0);
+
+Future<void> saveLastPdf(int page) async {
+  final v = (page - pageOffset).clamp(1, 100000).toInt();
+  lastPdfPage.value = v;
+  final p = await SharedPreferences.getInstance();
+  await p.setInt('pdf_last', v);
+}
+
+// ===================== إحصائيات المسبحة =====================
+class StatsData {
+  int streak = 0, best = 0;
+  int todayItems = 0, weekItems = 0, monthItems = 0, totalItems = 0;
+  int weekSum = 0, monthSum = 0, totalSum = 0;
+  final List<int> last7 = [];
+  final List<String> last7Labels = [];
+}
+
+Future<StatsData> loadStats() async {
+  final p = await SharedPreferences.getInstance();
+  final raw = p.getStringList('m_log') ?? [];
+  final sums = <String, int>{};
+  final items = <String, int>{};
+  for (final r in raw) {
+    final parts = r.split('\t');
+    if (parts.length < 5) continue;
+    final c = int.tryParse(parts[4]) ?? 0;
+    sums[parts[0]] = (sums[parts[0]] ?? 0) + c;
+    items[parts[0]] = (items[parts[0]] ?? 0) + 1;
+  }
+  String keyOf(DateTime d) => '${d.year}-${_two(d.month)}-${_two(d.day)}';
+  final n = DateTime.now();
+  final today = DateTime.utc(n.year, n.month, n.day);
+  final st = StatsData();
+
+  // السلسلة الحالية (لو لم تكملي اليوم بعد، تُحسب من أمس دون أن تنقطع)
+  var day = today;
+  if (!items.containsKey(keyOf(day))) day = day.subtract(Duration(days: 1));
+  while (items.containsKey(keyOf(day))) {
+    st.streak++;
+    day = day.subtract(Duration(days: 1));
+  }
+  // أطول سلسلة
+  final days = items.keys.map((k) {
+    final q = k.split('-');
+    return DateTime.utc(int.parse(q[0]), int.parse(q[1]), int.parse(q[2]));
+  }).toList()
+    ..sort();
+  int run = 0;
+  DateTime? prev;
+  for (final d in days) {
+    if (prev != null && d.difference(prev).inDays == 1) {
+      run++;
+    } else {
+      run = 1;
+    }
+    if (run > st.best) st.best = run;
+    prev = d;
+  }
+  // اليوم / الأسبوع / الشهر / الكل
+  for (final e in items.entries) {
+    final q = e.key.split('-');
+    final d = DateTime.utc(int.parse(q[0]), int.parse(q[1]), int.parse(q[2]));
+    final sm = sums[e.key] ?? 0;
+    st.totalItems += e.value;
+    st.totalSum += sm;
+    final diff = today.difference(d).inDays;
+    if (diff == 0) st.todayItems += e.value;
+    if (diff >= 0 && diff < 7) {
+      st.weekItems += e.value;
+      st.weekSum += sm;
+    }
+    if (d.year == today.year && d.month == today.month) {
+      st.monthItems += e.value;
+      st.monthSum += sm;
+    }
+  }
+  for (int i = 6; i >= 0; i--) {
+    final d = today.subtract(Duration(days: i));
+    st.last7.add(sums[keyOf(d)] ?? 0);
+    st.last7Labels.add(weekdayNames[d.weekday - 1]);
+  }
+  return st;
+}
+
+class StatsPage extends StatelessWidget {
+  const StatsPage({super.key});
+
+  Widget _tile(BuildContext context, IconData icon, String value, String label) => Container(
+        padding: EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: isDark(context) ? darkTint(0.14) : tint(0.10),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: isDark(context) ? darkTint(0.30) : tint(0.25)),
+        ),
+        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+          Icon(icon, color: accent(context), size: 26),
+          SizedBox(height: 4),
+          FittedBox(fit: BoxFit.scaleDown, child: Text(value, style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: ink(context)))),
+          SizedBox(height: 2),
+          Text(label, textAlign: TextAlign.center, style: TextStyle(fontSize: 13, color: ink(context).withOpacity(0.75))),
+        ]),
+      );
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(title: Text('الإحصائيات')),
+        body: FutureBuilder<StatsData>(
+          future: loadStats(),
+          builder: (context, snap) {
+            if (!snap.hasData) return Center(child: CircularProgressIndicator());
+            final d = snap.data!;
+            final maxV = d.last7.fold<int>(0, (a, b) => a > b ? a : b);
+            return ListView(padding: EdgeInsets.all(16), children: [
+              GridView.count(
+                shrinkWrap: true,
+                physics: NeverScrollableScrollPhysics(),
+                crossAxisCount: 2,
+                mainAxisSpacing: 12,
+                crossAxisSpacing: 12,
+                childAspectRatio: 1.45,
+                children: [
+                  _tile(context, Icons.local_fire_department, '${d.streak}', 'أيام متتالية الآن'),
+                  _tile(context, Icons.emoji_events, '${d.best}', 'أطول سلسلة أيام'),
+                  _tile(context, Icons.today, '${d.todayItems}', 'أذكار مكتملة اليوم'),
+                  _tile(context, Icons.date_range, '${d.weekItems}', 'مكتملة آخر 7 أيام'),
+                  _tile(context, Icons.calendar_month, '${d.monthSum}', 'تسبيحة هذا الشهر'),
+                  _tile(context, Icons.all_inclusive, '${d.totalSum}', 'مجموع التسبيحات'),
+                ],
+              ),
+              SizedBox(height: 20),
+              Text('التسبيحات في آخر 7 أيام', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600)),
+              SizedBox(height: 12),
+              Container(
+                height: 170,
+                padding: EdgeInsets.fromLTRB(8, 12, 8, 8),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(color: Color(0x55C6A75E)),
+                ),
+                child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                  for (int i = 0; i < 7; i++)
+                    Expanded(
+                      child: Column(mainAxisAlignment: MainAxisAlignment.end, children: [
+                        Text(d.last7[i] > 0 ? '${d.last7[i]}' : '', style: TextStyle(fontSize: 11)),
+                        SizedBox(height: 3),
+                        Container(
+                          width: 22,
+                          height: maxV == 0 ? 3 : 3 + 90.0 * d.last7[i] / maxV,
+                          decoration: BoxDecoration(
+                            color: i == 6 ? gold : green,
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                        ),
+                        SizedBox(height: 6),
+                        FittedBox(fit: BoxFit.scaleDown, child: Text(d.last7Labels[i], style: TextStyle(fontSize: 11))),
+                      ]),
+                    ),
+                ]),
+              ),
+              SizedBox(height: 14),
+              Text('الإحصائيات محسوبة من سجل الإنجازات، أي ذكر لم يكتمل عدده لا يدخل فيها.', textAlign: TextAlign.center, style: TextStyle(fontSize: 12, height: 1.6)),
+            ]);
+          },
+        ),
+      );
 }
