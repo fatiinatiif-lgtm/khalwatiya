@@ -1176,6 +1176,7 @@ class CounterPage extends StatefulWidget {
 class _CounterPageState extends State<CounterPage> {
   int count = 0, target = 100;
   bool ready = false;
+  bool pressed = false;
   late SharedPreferences prefs;
 
   String get ckey => widget.task.countKey;
@@ -1207,8 +1208,6 @@ class _CounterPageState extends State<CounterPage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم الإنجاز وحُفظ في السجل')));
       }
-    } else {
-      HapticFeedback.selectionClick();
     }
   }
 
@@ -1263,36 +1262,61 @@ class _CounterPageState extends State<CounterPage> {
               ),
               Expanded(
                 child: Center(
-                  child: SizedBox(
-                    width: 250,
-                    height: 250,
-                    child: Stack(alignment: Alignment.center, children: [
-                      SizedBox.expand(
-                        child: CircularProgressIndicator(
-                          value: (count / target).clamp(0.0, 1.0).toDouble(),
-                          strokeWidth: 10,
-                          color: gold,
-                          backgroundColor: isDark(context) ? const Color(0xFF2B3D36) : const Color(0xFFD7E2DD),
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTapDown: (_) => setState(() => pressed = true),
+                    onTapUp: (_) => setState(() => pressed = false),
+                    onTapCancel: () => setState(() => pressed = false),
+                    onTap: _tap,
+                    child: AnimatedScale(
+                      scale: pressed ? 0.97 : 1.0,
+                      duration: const Duration(milliseconds: 80),
+                      child: Container(
+                        width: 270,
+                        height: 270,
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topRight,
+                            end: Alignment.bottomLeft,
+                            colors: done ? const [Color(0xFF2B8065), Color(0xFF176B50)] : const [Color(0xFF1E8A66), deepGreen],
+                          ),
+                          borderRadius: BorderRadius.circular(36),
+                          border: Border.all(color: gold, width: 2),
                         ),
-                      ),
-                      Material(
-                        color: done ? const Color(0xFF2B8065) : green,
-                        shape: const CircleBorder(),
-                        elevation: 4,
-                        child: InkWell(
-                          customBorder: const CircleBorder(),
-                          onTap: _tap,
-                          child: SizedBox(
-                            width: 210,
-                            height: 210,
-                            child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                              Text('$count', style: const TextStyle(color: Colors.white, fontSize: 62, fontWeight: FontWeight.bold)),
-                              Text(done ? 'اكتمل' : 'من $target', style: const TextStyle(color: Colors.white70, fontSize: 18)),
+                        child: Stack(children: [
+                          Positioned.fill(
+                            child: Container(
+                              margin: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(27),
+                                border: Border.all(color: const Color(0x44C6A75E)),
+                              ),
+                            ),
+                          ),
+                          Center(
+                            child: Column(mainAxisSize: MainAxisSize.min, children: [
+                              Text('$count', style: const TextStyle(color: Colors.white, fontSize: 72, fontWeight: FontWeight.bold, height: 1.1)),
+                              const SizedBox(height: 4),
+                              Text(done ? 'اكتمل' : 'من $target', style: const TextStyle(color: Color(0xFFE6D19A), fontSize: 19)),
                             ]),
                           ),
-                        ),
+                          Positioned(
+                            left: 30,
+                            right: 30,
+                            bottom: 26,
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(6),
+                              child: LinearProgressIndicator(
+                                value: (count / target).clamp(0.0, 1.0).toDouble(),
+                                minHeight: 8,
+                                color: gold,
+                                backgroundColor: const Color(0x33FFFFFF),
+                              ),
+                            ),
+                          ),
+                        ]),
                       ),
-                    ]),
+                    ),
                   ),
                 ),
               ),
