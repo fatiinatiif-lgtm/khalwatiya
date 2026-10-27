@@ -170,6 +170,9 @@ Future<void> toggleFavorite(IndexEntry e) async {
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // وضع الشاشة الكاملة: إخفاء شريط الحالة وأزرار النظام (تظهر مؤقتاً بالسحب من حافة الشاشة)
+  SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+  WidgetsBinding.instance.addObserver(ImmersiveObserver());
   await loadFavorites();
   runApp(KhalwatiApp());
 }
@@ -331,7 +334,7 @@ class HomePage extends StatelessWidget {
                     padding: EdgeInsets.only(bottom: 12),
                     child: SectionCard(
                       title: 'متابعة قراءة كتاب الأوراد',
-                      subtitle: 'أكملي من صفحة $v',
+                      subtitle: 'أكمل القراءة من صفحة $v',
                       icon: Icons.bookmark_added,
                       onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => PdfReaderPage(initialPage: v))),
                     ),
@@ -357,35 +360,31 @@ class AwradPage extends StatelessWidget {
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(title: Text('الأوراد')),
         body: ListView(padding: EdgeInsets.all(16), children: [
-          SectionCard(
+          FancyCard(
             title: 'كتاب أوراد الطريقة',
             subtitle: 'الكتاب الكامل مع فهرس العناوين',
             icon: Icons.menu_book_rounded,
             onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => BookIndexPage())),
           ),
-          SizedBox(height: 12),
-          SectionCard(
+          FancyCard(
             title: 'المسبعات',
             subtitle: 'النص الكامل',
             icon: Icons.format_list_numbered,
             onTap: () => openText(context, 'المسبعات', 'assets/texts/musabbaat.txt', false),
           ),
-          SizedBox(height: 12),
-          SectionCard(
+          FancyCard(
             title: 'الصلوات الدرديرية',
             subtitle: 'النص الكامل',
             icon: Icons.volunteer_activism,
             onTap: () => openText(context, 'الصلوات الدرديرية', 'assets/texts/salawat_dardiriyya.txt', false),
           ),
-          SizedBox(height: 12),
-          SectionCard(
+          FancyCard(
             title: 'المنظومة',
             subtitle: 'القصيدة كاملة',
             icon: Icons.library_books,
             onTap: () => openText(context, 'المنظومة', 'assets/texts/manzuma.txt', true),
           ),
-          SizedBox(height: 12),
-          SectionCard(
+          FancyCard(
             title: 'حزب البحر',
             subtitle: 'النص كاملاً',
             icon: Icons.waves,
@@ -568,7 +567,7 @@ class _TextReaderPageState extends State<TextReaderPage> {
   Future<void> _goTo(int count) async {
     final i = bm;
     if (i < 0 || i >= count) {
-      _msg('اضغطي ضغطة طويلة على أي سطر لوضع علامة مكان التوقف');
+      _msg('اضغط ضغطة طويلة على أي سطر لوضع علامة مكان التوقف');
       return;
     }
     for (int attempt = 0; attempt < 12; attempt++) {
@@ -640,7 +639,9 @@ class _TextReaderPageState extends State<TextReaderPage> {
       gradient: LinearGradient(
         begin: Alignment.topCenter,
         end: Alignment.bottomCenter,
-        colors: dark ? [darkTint(0.06), darkTint(0.10)] : [tint(0.16), Color(0xFFF7F3E6)],
+        colors: dark
+            ? [darkTint(0.06), darkTint(0.10)]
+            : [Color.alphaBlend(green.withOpacity(0.10), Color(0xFFF5EEDC)), Color.alphaBlend(green.withOpacity(0.05), Color(0xFFEFE5CC))],
       ),
     );
     final cardDeco = BoxDecoration(
@@ -652,38 +653,39 @@ class _TextReaderPageState extends State<TextReaderPage> {
     if (widget.poem) {
       return Scaffold(
         appBar: appBar,
-        body: _withAutoBar(Container(
+        body: Column(children: [ReadingTimerBar(title: widget.title), Expanded(child: _withAutoBar(Container(
           decoration: bg,
           child: SingleChildScrollView(
             controller: sc,
-            padding: EdgeInsets.fromLTRB(14, 14, 14, 30),
-            child: Container(
-              padding: EdgeInsets.symmetric(horizontal: 12, vertical: 16),
-              decoration: cardDeco,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Text(heading, textAlign: TextAlign.center, style: titleStyle(context)),
-                  SizedBox(height: 8),
-                  PoemView(lines: body, cfg: cfg, marked: hasMark ? bm : -1, onMark: _toggle, keyFor: _key),
-                ],
+            padding: EdgeInsets.fromLTRB(10, 12, 10, 30),
+            child: PageFrame(
+              child: Padding(
+                padding: EdgeInsets.symmetric(horizontal: 10, vertical: 14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    PageTitle(text: heading),
+                    SizedBox(height: 14),
+                    PoemView(lines: body, cfg: cfg, marked: hasMark ? bm : -1, onMark: _toggle, keyFor: _key),
+                  ],
+                ),
               ),
             ),
           ),
-        )),
+        )))]),
       );
     }
 
     final st = bodyStyle(context);
     return Scaffold(
       appBar: appBar,
-      body: _withAutoBar(Container(
+      body: Column(children: [ReadingTimerBar(title: widget.title), Expanded(child: _withAutoBar(Container(
         decoration: bg,
         child: Padding(
-          padding: EdgeInsets.all(14),
-          child: Container(
-            padding: EdgeInsets.symmetric(horizontal: 18),
-            decoration: cardDeco,
+          padding: EdgeInsets.all(10),
+          child: PageFrame(
+            child: Padding(
+            padding: EdgeInsets.symmetric(horizontal: 14),
             child: ListView.builder(
               controller: sc,
               padding: EdgeInsets.only(top: 8, bottom: 16),
@@ -691,23 +693,30 @@ class _TextReaderPageState extends State<TextReaderPage> {
               itemBuilder: (context, i) {
                 if (i == 0) {
                   return Padding(
-                    padding: EdgeInsets.only(bottom: 8),
-                    child: Text(heading, textAlign: TextAlign.center, style: titleStyle(context)),
+                    padding: EdgeInsets.only(top: 6, bottom: 10),
+                    child: PageTitle(text: heading),
                   );
                 }
                 final idx = i - 1;
-                return markWrap(
-                  key: _key(idx),
-                  marked: hasMark && bm == idx,
-                  onLongPress: () => _toggle(idx),
-                  iconSize: 16,
-                  child: KashidaParagraph(text: body[idx], style: st),
-                );
+                return Column(children: [
+                  markWrap(
+                    key: _key(idx),
+                    marked: hasMark && bm == idx,
+                    onLongPress: () => _toggle(idx),
+                    iconSize: 16,
+                    child: KashidaParagraph(text: body[idx], style: st),
+                  ),
+                  Padding(
+                    padding: EdgeInsets.only(bottom: 6),
+                    child: Center(child: Container(width: 38, height: 1, color: gold.withOpacity(0.38))),
+                  ),
+                ]);
               },
+            ),
             ),
           ),
         ),
-      )),
+      )))]),
     );
   }
 }
@@ -1036,7 +1045,7 @@ class FavoritesPage extends StatelessWidget {
               return Center(
                 child: Padding(
                   padding: EdgeInsets.all(28),
-                  child: Text('اضغطي على النجمة بجانب أي عنوان في الفهرس ليظهر هنا.',
+                  child: Text('اضغط على النجمة بجانب أي عنوان في الفهرس ليظهر هنا.',
                       textAlign: TextAlign.center, style: TextStyle(fontSize: 18, height: 1.8)),
                 ),
               );
@@ -1081,7 +1090,7 @@ class MorePage extends StatelessWidget {
           ListTile(
             leading: Icon(Icons.palette, color: green),
             title: Text('ألوان التطبيق'),
-            subtitle: Text('اختاري لون التطبيق من عدة ألوان'),
+            subtitle: Text('اختر لون التطبيق من بين عدة ألوان'),
             trailing: Icon(Icons.chevron_left, color: green),
             onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ThemeColorsPage())),
           ),
@@ -1200,7 +1209,7 @@ class FontSettingsPage extends StatelessWidget {
               SizedBox(height: 20),
               TextButton.icon(onPressed: () => saveFont(FontCfg()), icon: Icon(Icons.restart_alt), label: Text('استرجاع الإعدادات الأصلية')),
               SizedBox(height: 6),
-              Text('الإعدادات تنطبق على المسبعات والصلوات الدرديرية والمنظومة. كتاب الأوراد صور صفحات فلا يتأثر بها.',
+              Text('الإعدادات تنطبق على المسبعات والصلوات الدرديرية والمنظومة وحزب البحر. أما كتاب الأوراد فصفحاته صور، فلا تتأثر بها.',
                   textAlign: TextAlign.center, style: TextStyle(fontSize: 13, height: 1.6)),
             ]);
           },
@@ -1284,29 +1293,26 @@ class MasbahaPage extends StatelessWidget {
         appBar: AppBar(title: Text('المسبحة')),
         body: ListView(padding: EdgeInsets.all(16), children: [
           for (final w in wirdDefs) ...[
-            SectionCard(
+            FancyCard(
               title: w.title,
-              subtitle: 'اضغطي لعرض المهام وعداد السبحة',
+              subtitle: 'اضغط لعرض المهام وعدّاد المسبحة',
               icon: w.icon,
               onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => WirdPage(def: w))),
             ),
-            SizedBox(height: 12),
           ],
-          SectionCard(
+          FancyCard(
             title: namesDef.title,
             subtitle: 'لا إله إلا الله • الله • هو • حق • حي • قيوم • قهار',
             icon: namesDef.icon,
             onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => WirdPage(def: namesDef))),
           ),
-          SizedBox(height: 12),
-          SectionCard(
+          FancyCard(
             title: 'الإحصائيات',
             subtitle: 'الأيام المتتالية وعدد الأذكار',
             icon: Icons.bar_chart_rounded,
             onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => StatsPage())),
           ),
-          SizedBox(height: 12),
-          SectionCard(
+          FancyCard(
             title: 'سجل الإنجازات',
             subtitle: 'الأذكار التي أكملتها',
             icon: Icons.history,
@@ -1435,32 +1441,68 @@ class _WirdPageState extends State<WirdPage> {
     final c = counts[t.id] ?? 0;
     final tg = targets[t.id] ?? t.target;
     final done = c >= tg;
-    return Card(
-      margin: EdgeInsets.only(bottom: 12),
-      color: isDark(context) ? darkTint(0.14) : Colors.white,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(18),
-        side: BorderSide(color: done ? gold : (isDark(context) ? darkTint(0.30) : tint(0.20)), width: done ? 2 : 1),
+    final frac = tg == 0 ? 0.0 : (c / tg).clamp(0.0, 1.0).toDouble();
+    final dark = isDark(context);
+    return Container(
+      margin: EdgeInsets.only(bottom: 14),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topRight,
+          end: Alignment.bottomLeft,
+          colors: dark ? [darkTint(0.18), darkTint(0.08)] : [Colors.white, tint(0.12)],
+        ),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: done ? gold : gold.withOpacity(0.55), width: done ? 2.2 : 1.2),
+        boxShadow: [BoxShadow(color: (dark ? Colors.black : green).withOpacity(dark ? 0.4 : 0.14), blurRadius: 14, offset: Offset(0, 5))],
       ),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(18),
-        onTap: () async {
-          await Navigator.push(context, MaterialPageRoute(builder: (_) => CounterPage(task: t, wird: widget.def.title)));
-          load();
-        },
-        child: Padding(
-          padding: EdgeInsets.all(16),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Expanded(child: Text(t.text, style: TextStyle(fontSize: 18, height: 1.9, fontWeight: FontWeight.w600, color: ink(context)))),
-              if (done) Icon(Icons.check_circle, color: gold),
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(22),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(22),
+          onTap: () async {
+            await Navigator.push(context, MaterialPageRoute(builder: (_) => CounterPage(task: t, wird: widget.def.title)));
+            load();
+          },
+          child: Padding(
+            padding: EdgeInsets.all(14),
+            child: Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+              SizedBox(
+                width: 62,
+                height: 62,
+                child: Stack(alignment: Alignment.center, children: [
+                  SizedBox.expand(
+                    child: CircularProgressIndicator(
+                      value: frac,
+                      strokeWidth: 5,
+                      color: done ? gold : green,
+                      backgroundColor: dark ? darkTint(0.30) : tint(0.20),
+                    ),
+                  ),
+                  done
+                      ? Icon(Icons.check_rounded, color: gold, size: 30)
+                      : Text('${(frac * 100).round()}%', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: accent(context))),
+                ]),
+              ),
+              SizedBox(width: 14),
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(t.text, style: TextStyle(fontSize: 17, height: 1.8, fontWeight: FontWeight.w600, color: ink(context))),
+                  SizedBox(height: 6),
+                  Container(
+                    padding: EdgeInsets.symmetric(horizontal: 12, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: gold.withOpacity(0.16),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: gold.withOpacity(0.6)),
+                    ),
+                    child: Text('$c / $tg', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: accent(context))),
+                  ),
+                ]),
+              ),
               if (t.custom) IconButton(icon: Icon(Icons.delete_outline), onPressed: () => deleteDhikr(t)),
             ]),
-            SizedBox(height: 8),
-            LinearProgressIndicator(value: tg == 0 ? 0 : (c / tg).clamp(0.0, 1.0).toDouble(), minHeight: 8, borderRadius: BorderRadius.circular(8), color: green),
-            SizedBox(height: 6),
-            Text('$c / $tg', textAlign: TextAlign.center, style: TextStyle(color: ink(context).withOpacity(0.7))),
-          ]),
+          ),
         ),
       ),
     );
@@ -1643,7 +1685,9 @@ class LogPage extends StatefulWidget {
 
 class _LogPageState extends State<LogPage> {
   List<List<String>> rows = [];
+  List<List<String>> reads = [];
   bool loaded = false;
+  int tab = 0; // 0 = الأذكار، 1 = القراءة
 
   @override
   void initState() {
@@ -1654,9 +1698,11 @@ class _LogPageState extends State<LogPage> {
   Future<void> _load() async {
     final p = await SharedPreferences.getInstance();
     final raw = p.getStringList('m_log') ?? [];
+    final rr = p.getStringList('m_reads') ?? [];
     if (!mounted) return;
     setState(() {
       rows = raw.map((r) => r.split('\t')).where((r) => r.length >= 5).toList();
+      reads = rr.map((r) => r.split('\t')).where((r) => r.length >= 4).toList();
       loaded = true;
     });
   }
@@ -1665,7 +1711,7 @@ class _LogPageState extends State<LogPage> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text('مسح السجل كله؟'),
+        title: Text(tab == 0 ? 'مسح سجل الأذكار كله؟' : 'مسح سجل القراءة كله؟'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text('إلغاء')),
           FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text('مسح')),
@@ -1674,43 +1720,70 @@ class _LogPageState extends State<LogPage> {
     );
     if (ok == true) {
       final p = await SharedPreferences.getInstance();
-      await p.remove('m_log');
+      await p.remove(tab == 0 ? 'm_log' : 'm_reads');
       _load();
     }
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(
-          title: Text('سجل الإنجازات'),
-          actions: [if (rows.isNotEmpty) IconButton(tooltip: 'مسح السجل', icon: Icon(Icons.delete_sweep), onPressed: _clear)],
-        ),
-        body: !loaded
-            ? Center(child: CircularProgressIndicator())
-            : rows.isEmpty
-                ? Center(
-                    child: Padding(
-                      padding: EdgeInsets.all(28),
-                      child: Text('لا توجد إنجازات بعد. أكملي عدد أي ذكر وسيظهر هنا.', textAlign: TextAlign.center, style: TextStyle(fontSize: 18, height: 1.8)),
-                    ),
-                  )
-                : ListView.separated(
-                    padding: EdgeInsets.all(12),
-                    itemCount: rows.length,
-                    separatorBuilder: (_, __) => Divider(height: 1),
-                    itemBuilder: (context, i) {
-                      final r = rows[i];
-                      return ListTile(
-                        leading: Icon(Icons.check_circle, color: gold),
-                        title: Text(r[3], style: TextStyle(fontWeight: FontWeight.w600, height: 1.6)),
-                        subtitle: Text('${r[2]} • ${r[0]} ${r[1]}'),
-                        trailing: Text('×${r[4]}', style: TextStyle(fontWeight: FontWeight.bold)),
-                      );
-                    },
-                  ),
-      );
+  Widget build(BuildContext context) {
+    final empty = tab == 0 ? rows.isEmpty : reads.isEmpty;
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('سجل الإنجازات'),
+        actions: [if (!empty) IconButton(tooltip: 'مسح السجل', icon: Icon(Icons.delete_sweep), onPressed: _clear)],
+      ),
+      body: !loaded
+          ? Center(child: CircularProgressIndicator())
+          : Column(children: [
+              Padding(
+                padding: EdgeInsets.fromLTRB(12, 12, 12, 4),
+                child: Row(children: [
+                  Expanded(child: ChoiceChip(label: SizedBox(width: double.infinity, child: Text('الأذكار', textAlign: TextAlign.center)), selected: tab == 0, onSelected: (_) => setState(() => tab = 0))),
+                  SizedBox(width: 10),
+                  Expanded(child: ChoiceChip(label: SizedBox(width: double.infinity, child: Text('مدة القراءة', textAlign: TextAlign.center)), selected: tab == 1, onSelected: (_) => setState(() => tab = 1))),
+                ]),
+              ),
+              Expanded(
+                child: empty
+                    ? Center(
+                        child: Padding(
+                          padding: EdgeInsets.all(28),
+                          child: Text(
+                            tab == 0 ? 'لا توجد إنجازات بعد. أكمل عدد أي ذكر فيظهر هنا.' : 'لا توجد جلسات قراءة بعد. اضغط زر التشغيل في أعلى أي نص، وعند الانتهاء اضغط علامة ✔ لحفظ المدة.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(fontSize: 18, height: 1.8),
+                          ),
+                        ),
+                      )
+                    : ListView.separated(
+                        padding: EdgeInsets.all(12),
+                        itemCount: tab == 0 ? rows.length : reads.length,
+                        separatorBuilder: (_, __) => Divider(height: 1),
+                        itemBuilder: (context, i) {
+                          if (tab == 0) {
+                            final r = rows[i];
+                            return ListTile(
+                              leading: Icon(Icons.check_circle, color: gold),
+                              title: Text(r[3], style: TextStyle(fontWeight: FontWeight.w600, height: 1.6)),
+                              subtitle: Text('${r[2]} • ${r[0]} ${r[1]}'),
+                              trailing: Text('×${r[4]}', style: TextStyle(fontWeight: FontWeight.bold)),
+                            );
+                          }
+                          final r = reads[i];
+                          return ListTile(
+                            leading: Icon(Icons.menu_book, color: gold),
+                            title: Text(r[2], style: TextStyle(fontWeight: FontWeight.w600)),
+                            subtitle: Text('${r[0]} ${r[1]}'),
+                            trailing: Text(fmtDurAr(int.tryParse(r[3]) ?? 0), style: TextStyle(fontWeight: FontWeight.bold)),
+                          );
+                        },
+                      ),
+              ),
+            ]),
+    );
+  }
 }
-
 
 class ClockCard extends StatefulWidget {
   const ClockCard({super.key});
@@ -1841,7 +1914,7 @@ class _ClockSettingsPageState extends State<ClockSettingsPage> {
             SizedBox(height: 6),
             Text('التاريخ الهجري الحالي: ${fmtHijri(t)}', style: TextStyle(fontSize: 13)),
             SizedBox(height: 4),
-            Text('الحساب تقريبي، وقد يختلف يوماً عن رؤية الهلال، فاضبطيه من هنا لو لزم.', textAlign: TextAlign.center, style: TextStyle(fontSize: 12, height: 1.6)),
+            Text('الحساب تقريبي، وقد يختلف يوماً عن رؤية الهلال، فاضبطه من هنا عند الحاجة.', textAlign: TextAlign.center, style: TextStyle(fontSize: 12, height: 1.6)),
           ]),
         ),
         SizedBox(height: 18),
@@ -1887,7 +1960,7 @@ class PoemView extends StatelessWidget {
       final base = bodyStyle(context);
       final cands = <String>[];
       for (final b in bayts) {
-        cands.add(b[0]);
+        cands.add(indent + b[0]);
         if (b[1].isNotEmpty) cands.add(indent + b[1]);
       }
       // أعرض 6 أشطر عند الحجم المطلوب
@@ -1917,7 +1990,7 @@ class PoemView extends StatelessWidget {
         size = lo;
       }
       final st = base.copyWith(fontSize: size);
-      // العجز: يبدأ بعد 8 مسافات، ويُمَدّ بالكشيدة لتنتهي كل الأعجاز عند نفس الحافة اليسرى
+      // كل صدر وكل عجز يُمَدّ بالكشيدة لنفس العرض (عرض الصفحة ناقص 8 مسافات): الصدر يبدأ من اليمين، والعجز يبدأ بعد 8 مسافات
       final indentW = _w(st, indent);
       final tw = _w(st, '\u0640' * 10) / 10;
       final ajzW = avail - indentW;
@@ -1935,11 +2008,11 @@ class PoemView extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    hiText(context, e.value[0], st),
+                    hiText(context, tw > 0.5 ? justifyLineKashida(e.value[0], st, ajzW, tw, cap: 8) : e.value[0], st),
                     if (e.value[1].isNotEmpty)
                       Padding(
                         padding: EdgeInsetsDirectional.only(start: indentW),
-                        child: hiText(context, tw > 0.5 ? justifyLineKashida(e.value[1], st, ajzW, tw, cap: 6) : e.value[1], st),
+                        child: hiText(context, tw > 0.5 ? justifyLineKashida(e.value[1], st, ajzW, tw, cap: 8) : e.value[1], st),
                       ),
                   ],
                 ),
@@ -2283,7 +2356,7 @@ class ThemeColorsPage extends StatelessWidget {
         body: ValueListenableBuilder<int>(
           valueListenable: paletteIdx,
           builder: (context, sel, _) => ListView(padding: EdgeInsets.all(16), children: [
-            Text('اختاري اللون المفضل، وسيتغير لون التطبيق كله فوراً.', textAlign: TextAlign.center, style: TextStyle(fontSize: 15, height: 1.7)),
+            Text('اختر اللون المفضل، وسيتغير لون التطبيق كله فوراً.', textAlign: TextAlign.center, style: TextStyle(fontSize: 15, height: 1.7)),
             SizedBox(height: 14),
             GridView.count(
               shrinkWrap: true,
@@ -2421,6 +2494,7 @@ class StatsData {
   int streak = 0, best = 0;
   int todayItems = 0, weekItems = 0, monthItems = 0, totalItems = 0;
   int weekSum = 0, monthSum = 0, totalSum = 0;
+  int readToday = 0, readTotal = 0; // ثواني القراءة
   final List<int> last7 = [];
   final List<String> last7Labels = [];
 }
@@ -2484,6 +2558,13 @@ Future<StatsData> loadStats() async {
       st.monthSum += sm;
     }
   }
+  for (final r in (p.getStringList('m_reads') ?? [])) {
+    final parts = r.split('\t');
+    if (parts.length < 4) continue;
+    final secs = int.tryParse(parts[3]) ?? 0;
+    st.readTotal += secs;
+    if (parts[0] == keyOf(today)) st.readToday += secs;
+  }
   for (int i = 6; i >= 0; i--) {
     final d = today.subtract(Duration(days: i));
     st.last7.add(sums[keyOf(d)] ?? 0);
@@ -2535,6 +2616,8 @@ class StatsPage extends StatelessWidget {
                   _tile(context, Icons.date_range, '${d.weekItems}', 'مكتملة آخر 7 أيام'),
                   _tile(context, Icons.calendar_month, '${d.monthSum}', 'تسبيحة هذا الشهر'),
                   _tile(context, Icons.all_inclusive, '${d.totalSum}', 'مجموع التسبيحات'),
+                  _tile(context, Icons.menu_book, fmtDurAr(d.readToday), 'وقت القراءة اليوم'),
+                  _tile(context, Icons.hourglass_bottom, fmtDurAr(d.readTotal), 'إجمالي وقت القراءة'),
                 ],
               ),
               SizedBox(height: 20),
@@ -2573,4 +2656,318 @@ class StatsPage extends StatelessWidget {
           },
         ),
       );
+}
+
+
+// ===================== عداد مدة القراءة (شريط منفصل أعلى الشاشة) =====================
+class ReadingTimerBar extends StatefulWidget {
+  final String title;
+  const ReadingTimerBar({super.key, required this.title});
+  @override
+  State<ReadingTimerBar> createState() => _ReadingTimerBarState();
+}
+
+class _ReadingTimerBarState extends State<ReadingTimerBar> {
+  final Stopwatch sw = Stopwatch(); // لا يبدأ إلا بزر التشغيل
+  Timer? tick;
+
+  @override
+  void initState() {
+    super.initState();
+    tick = Timer.periodic(Duration(seconds: 1), (_) {
+      if (mounted && sw.isRunning) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    tick?.cancel();
+    // لو خرجتِ من الصفحة وفيها وقت لم يُحفظ بعد، يُحفظ تلقائياً في السجل
+    if (sw.elapsed.inSeconds >= 5) addReadLog(widget.title, sw.elapsed.inSeconds);
+    super.dispose();
+  }
+
+  Future<void> _finish() async {
+    final secs = sw.elapsed.inSeconds;
+    sw.stop();
+    sw.reset();
+    setState(() {});
+    if (secs >= 1) {
+      await addReadLog(widget.title, secs);
+      if (mounted) {
+        final sm = ScaffoldMessenger.of(context);
+        sm.hideCurrentSnackBar();
+        sm.showSnackBar(SnackBar(duration: Duration(seconds: 3), content: Text('تم حفظ مدة القراءة (${fmtDurAr(secs)}) في السجل')));
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final running = sw.isRunning;
+    final hasTime = sw.elapsed.inSeconds >= 1;
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: isDark(context) ? darkTint(0.22) : deepGreen,
+        border: Border(bottom: BorderSide(color: gold.withOpacity(0.7), width: 1.2)),
+      ),
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+          Icon(Icons.timer_outlined, color: Color(0xFFE6D19A), size: 22),
+          SizedBox(width: 8),
+          Text('مدة القراءة', style: TextStyle(color: Colors.white70, fontSize: 14)),
+          SizedBox(width: 12),
+          Directionality(
+            textDirection: TextDirection.ltr,
+            child: Text(fmtDurClock(sw.elapsed), style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
+          ),
+          SizedBox(width: 4),
+          IconButton(
+            tooltip: running ? 'إيقاف مؤقت' : (hasTime ? 'متابعة' : 'ابدأ القراءة'),
+            color: Color(0xFFE6D19A),
+            icon: Icon(running ? Icons.pause_circle_filled : Icons.play_circle_fill, size: 32),
+            onPressed: () => setState(() => running ? sw.stop() : sw.start()),
+          ),
+          IconButton(
+            tooltip: 'إنهاء وحفظ في السجل',
+            color: hasTime ? Color(0xFF9BE3B5) : Colors.white24,
+            icon: Icon(Icons.check_circle, size: 30),
+            onPressed: hasTime ? _finish : null,
+          ),
+          IconButton(
+            tooltip: 'تصفير بدون حفظ',
+            color: Colors.white70,
+            icon: Icon(Icons.restart_alt),
+            onPressed: hasTime ? () => setState(() => sw.reset()) : null,
+          ),
+        ]),
+      ),
+    );
+  }
+}
+
+// ---- سجل مدة القراءة ----
+String fmtDurClock(Duration d) {
+  final h = d.inHours;
+  final m = _two(d.inMinutes % 60);
+  final sec = _two(d.inSeconds % 60);
+  return h > 0 ? '$h:$m:$sec' : '$m:$sec';
+}
+
+String fmtDurAr(int total) {
+  final h = total ~/ 3600;
+  final m = (total % 3600) ~/ 60;
+  final sec = total % 60;
+  if (h > 0) return '$h ساعة${m > 0 ? ' و$m دقيقة' : ''}';
+  if (m > 0) return '$m دقيقة${sec > 0 ? ' و$sec ثانية' : ''}';
+  return '$sec ثانية';
+}
+
+Future<void> addReadLog(String title, int seconds) async {
+  final p = await SharedPreferences.getInstance();
+  final list = p.getStringList('m_reads') ?? [];
+  final n = DateTime.now();
+  list.insert(0, [todayKey(), '${_two(n.hour)}:${_two(n.minute)}', title, '$seconds'].join('\t'));
+  if (list.length > 3000) list.removeRange(3000, list.length);
+  await p.setStringList('m_reads', list);
+}
+
+
+// ===================== تصميم صفحات القراءة =====================
+Color paperColor(BuildContext c) => isDark(c) ? Color.alphaBlend(Colors.white.withOpacity(0.045), darkTint(0.07)) : Color(0xFFFFFCF4);
+
+// إطار مزدوج ذهبي بزخارف في الأركان، كأنه صفحة مصحف
+class PageFrame extends StatelessWidget {
+  final Widget child;
+  const PageFrame({super.key, required this.child});
+
+  Widget _corner() => Transform.rotate(
+        angle: 0.785398,
+        child: Container(
+          width: 10,
+          height: 10,
+          decoration: BoxDecoration(color: gold, border: Border.all(color: Colors.white.withOpacity(0.7), width: 0.8)),
+        ),
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = isDark(context);
+    return Stack(clipBehavior: Clip.none, children: [
+      Container(
+        padding: EdgeInsets.all(4),
+        decoration: BoxDecoration(
+          color: paperColor(context),
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(color: gold, width: 1.8),
+          boxShadow: [BoxShadow(color: Colors.black.withOpacity(dark ? 0.35 : 0.12), blurRadius: 14, offset: Offset(0, 5))],
+        ),
+        child: Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: gold.withOpacity(0.55), width: 1),
+          ),
+          child: child,
+        ),
+      ),
+      Positioned(top: -3, right: -3, child: _corner()),
+      Positioned(top: -3, left: -3, child: _corner()),
+      Positioned(bottom: -3, right: -3, child: _corner()),
+      Positioned(bottom: -3, left: -3, child: _corner()),
+    ]);
+  }
+}
+
+// عنوان النص: لوحة ذهبية في المنتصف يحيط بها خطان مزخرفان
+class PageTitle extends StatelessWidget {
+  final String text;
+  const PageTitle({super.key, required this.text});
+
+  Widget _diamond() => Transform.rotate(angle: 0.785398, child: Container(width: 7, height: 7, color: gold));
+  Widget _line() => Expanded(child: Container(height: 1.2, color: gold.withOpacity(0.55)));
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = isDark(context);
+    final base = titleStyle(context);
+    final st = base.copyWith(fontSize: math.min(base.fontSize ?? 22, 28));
+    return Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+      _line(),
+      SizedBox(width: 6),
+      _diamond(),
+      SizedBox(width: 8),
+      Flexible(
+        flex: 0,
+        child: Container(
+          padding: EdgeInsets.symmetric(horizontal: 18, vertical: 4),
+          decoration: BoxDecoration(
+            color: gold.withOpacity(dark ? 0.14 : 0.16),
+            borderRadius: BorderRadius.circular(26),
+            border: Border.all(color: gold.withOpacity(0.85), width: 1.3),
+          ),
+          child: Text(text, textAlign: TextAlign.center, style: st),
+        ),
+      ),
+      SizedBox(width: 8),
+      _diamond(),
+      SizedBox(width: 6),
+      _line(),
+    ]);
+  }
+}
+
+
+// يعيد وضع الشاشة الكاملة كلما رجع التطبيق للواجهة (بعد النوافذ ولوحة المفاتيح والتنقل بين التطبيقات)
+class ImmersiveObserver with WidgetsBindingObserver {
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    }
+  }
+}
+
+
+// ===================== بطاقة قسم مميزة (الأوراد والمسبحة) =====================
+class FancyCard extends StatefulWidget {
+  final String title, subtitle;
+  final IconData icon;
+  final VoidCallback? onTap;
+  const FancyCard({super.key, required this.title, required this.subtitle, required this.icon, required this.onTap});
+  @override
+  State<FancyCard> createState() => _FancyCardState();
+}
+
+class _FancyCardState extends State<FancyCard> {
+  bool pressed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = isDark(context);
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTapDown: (_) => setState(() => pressed = true),
+      onTapUp: (_) => setState(() => pressed = false),
+      onTapCancel: () => setState(() => pressed = false),
+      onTap: widget.onTap,
+      child: AnimatedScale(
+        scale: pressed ? 0.98 : 1.0,
+        duration: Duration(milliseconds: 90),
+        child: Container(
+          margin: EdgeInsets.only(bottom: 14),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topRight,
+              end: Alignment.bottomLeft,
+              colors: dark ? [darkTint(0.18), darkTint(0.08)] : [Colors.white, tint(0.12)],
+            ),
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: gold.withOpacity(0.7), width: 1.3),
+            boxShadow: [BoxShadow(color: (dark ? Colors.black : green).withOpacity(dark ? 0.4 : 0.16), blurRadius: 16, offset: Offset(0, 6))],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(24),
+            child: Stack(children: [
+              // أيقونة كبيرة باهتة في الخلفية
+              PositionedDirectional(
+                end: -16,
+                bottom: -20,
+                child: Icon(widget.icon, size: 120, color: green.withOpacity(dark ? 0.12 : 0.07)),
+              ),
+              // شريط ذهبي على الحافة
+              PositionedDirectional(
+                start: 0,
+                top: 0,
+                bottom: 0,
+                width: 6,
+                child: Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [gold, Color(0xFFE6D19A), gold]),
+                  ),
+                ),
+              ),
+              Padding(
+                padding: EdgeInsetsDirectional.fromSTEB(22, 16, 14, 16),
+                child: Row(children: [
+                  Container(
+                    width: 62,
+                    height: 62,
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(begin: Alignment.topRight, end: Alignment.bottomLeft, colors: [lighten(0.12), deepGreen]),
+                      borderRadius: BorderRadius.circular(19),
+                      border: Border.all(color: gold, width: 1.6),
+                      boxShadow: [BoxShadow(color: green.withOpacity(0.35), blurRadius: 8, offset: Offset(0, 3))],
+                    ),
+                    child: Icon(widget.icon, color: Colors.white, size: 31),
+                  ),
+                  SizedBox(width: 14),
+                  Expanded(
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text(widget.title, style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800, color: accent(context))),
+                      SizedBox(height: 5),
+                      Text(widget.subtitle, style: TextStyle(fontSize: 13.5, height: 1.5, color: ink(context).withOpacity(0.72))),
+                    ]),
+                  ),
+                  SizedBox(width: 8),
+                  Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: gold.withOpacity(0.18),
+                      border: Border.all(color: gold.withOpacity(0.8), width: 1.2),
+                    ),
+                    child: Icon(Icons.chevron_left, color: accent(context), size: 24),
+                  ),
+                ]),
+              ),
+            ]),
+          ),
+        ),
+      ),
+    );
+  }
 }
