@@ -144,6 +144,9 @@ Future<void> loadFavorites() async {
   paletteIdx.value = (p.getInt('palette') ?? 0).clamp(0, palettes.length - 1).toInt();
   timeOffset = Duration(milliseconds: p.getInt('clock_off_ms') ?? 0);
   hijriAdj = p.getInt('hijri_adj') ?? 0;
+  prayerCityIdx.value = (p.getInt('pr_city') ?? 0).clamp(0, prayerCities.length - 1).toInt();
+  final prRaw = p.getStringList('pr_adj');
+  prayerAdj.value = List<int>.generate(6, (i) => (prRaw != null && i < prRaw.length) ? (int.tryParse(prRaw[i]) ?? 0) : 0);
   fontCfg.value = FontCfg(
     size: p.getDouble('f_size') ?? 21,
     wordSp: p.getDouble('f_word') ?? 0,
@@ -542,7 +545,9 @@ class HomePage extends StatelessWidget {
           ),
           SizedBox(height: 22),
           Padding(padding: EdgeInsets.symmetric(horizontal: 16), child: ThanksCard()),
-          SizedBox(height: 14),
+          _SectionTitle('مواقيت الصلاة'),
+          Padding(padding: EdgeInsets.symmetric(horizontal: 16), child: PrayerCard()),
+          SizedBox(height: 18),
           Padding(
             padding: EdgeInsets.symmetric(horizontal: 24),
             child: Text('المحتوى محفوظ داخل التطبيق ويمكن فتحه دون إنترنت.',
@@ -1821,6 +1826,13 @@ class MorePage extends StatelessWidget {
             subtitle: Text('ضبط الوقت والتاريخ الميلادي والهجري يدوياً'),
             trailing: Icon(Icons.chevron_left, color: green),
             onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ClockSettingsPage())),
+          ),
+          ListTile(
+            leading: Icon(Icons.mosque, color: green),
+            title: Text('تعديل مواقيت الصلاة'),
+            subtitle: Text('اختيار المدينة وضبط كل وقت بالدقائق يدوياً'),
+            trailing: Icon(Icons.chevron_left, color: green),
+            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => PrayerSettingsPage())),
           ),
           ListTile(leading: Icon(Icons.info_outline, color: green), title: Text('عن التطبيق'), subtitle: Text('الطريقة الخلوتية البكرية')),
           ListTile(leading: Icon(Icons.offline_bolt, color: green), title: Text('يعمل دون إنترنت'), subtitle: Text('الكتاب والفهرس والنصوص محفوظة داخل التطبيق.')),
@@ -4234,4 +4246,527 @@ class _CountBoxState extends State<CountBox> with SingleTickerProviderStateMixin
       ),
     );
   }
+}
+
+
+// ===================== مواقيت الصلاة =====================
+class PrayerCity {
+  final String name;
+  final double lat, lng;
+  const PrayerCity(this.name, this.lat, this.lng);
+}
+
+const List<PrayerCity> prayerCities = [
+  PrayerCity('القاهرة', 30.0444, 31.2357),
+  PrayerCity('الجيزة', 30.0131, 31.2089),
+  PrayerCity('الإسكندرية', 31.2001, 29.9187),
+  PrayerCity('المنصورة', 31.0409, 31.3785),
+  PrayerCity('طنطا', 30.7865, 31.0004),
+  PrayerCity('الزقازيق', 30.5877, 31.5020),
+  PrayerCity('بنها', 30.4660, 31.1848),
+  PrayerCity('شبين الكوم', 30.5595, 31.0111),
+  PrayerCity('دمنهور', 31.0341, 30.4682),
+  PrayerCity('كفر الشيخ', 31.1107, 30.9388),
+  PrayerCity('دمياط', 31.4165, 31.8133),
+  PrayerCity('بورسعيد', 31.2653, 32.3019),
+  PrayerCity('الإسماعيلية', 30.5965, 32.2715),
+  PrayerCity('السويس', 29.9668, 32.5498),
+  PrayerCity('الفيوم', 29.3084, 30.8428),
+  PrayerCity('بني سويف', 29.0661, 31.0994),
+  PrayerCity('المنيا', 28.1099, 30.7503),
+  PrayerCity('أسيوط', 27.1783, 31.1859),
+  PrayerCity('سوهاج', 26.5591, 31.6948),
+  PrayerCity('قنا', 26.1551, 32.7160),
+  PrayerCity('الأقصر', 25.6872, 32.6396),
+  PrayerCity('أسوان', 24.0889, 32.8998),
+  PrayerCity('مكة المكرمة', 21.4225, 39.8262),
+  PrayerCity('المدينة المنورة', 24.4672, 39.6111),
+  PrayerCity('الرياض', 24.7136, 46.6753),
+  PrayerCity('القدس', 31.7683, 35.2137),
+  PrayerCity('عمّان', 31.9454, 35.9284),
+  PrayerCity('الخرطوم', 15.5007, 32.5599),
+];
+
+const List<String> prayerNames = ['الفجر', 'الشروق', 'الظهر', 'العصر', 'المغرب', 'العشاء'];
+const List<IconData> prayerIcons = [Icons.nights_stay, Icons.wb_twilight, Icons.wb_sunny, Icons.light_mode, Icons.brightness_medium, Icons.dark_mode];
+
+final ValueNotifier<int> prayerCityIdx = ValueNotifier<int>(0);
+final ValueNotifier<List<int>> prayerAdj = ValueNotifier<List<int>>(List<int>.filled(6, 0)); // تعديل بالدقائق لكل وقت
+
+Future<void> savePrayerCity(int i) async {
+  prayerCityIdx.value = i;
+  final p = await SharedPreferences.getInstance();
+  await p.setInt('pr_city', i);
+}
+
+Future<void> savePrayerAdj(List<int> l) async {
+  prayerAdj.value = List<int>.from(l);
+  final p = await SharedPreferences.getInstance();
+  await p.setStringList('pr_adj', l.map((e) => '$e').toList());
+}
+
+double _fixMod(double a, double b) {
+  final r = a - b * (a / b).floorToDouble();
+  return r < 0 ? r + b : r;
+}
+
+double _dRad(double d) => d * math.pi / 180.0;
+double _rDeg(double r) => r * 180.0 / math.pi;
+
+double _julianDate(int y, int m, int d) {
+  if (m <= 2) {
+    y -= 1;
+    m += 12;
+  }
+  final a = (y / 100).floor();
+  final b = 2 - a + (a / 4).floor();
+  return (365.25 * (y + 4716)).floorToDouble() + (30.6001 * (m + 1)).floorToDouble() + d + b - 1524.5;
+}
+
+// [الميل الشمسي، معادلة الزمن بالساعات]
+List<double> _sunPos(double jd) {
+  final d = jd - 2451545.0;
+  final g = _fixMod(357.529 + 0.98560028 * d, 360);
+  final q = _fixMod(280.459 + 0.98564736 * d, 360);
+  final l = _fixMod(q + 1.915 * math.sin(_dRad(g)) + 0.020 * math.sin(_dRad(2 * g)), 360);
+  final e = 23.439 - 0.00000036 * d;
+  final ra = _rDeg(math.atan2(math.cos(_dRad(e)) * math.sin(_dRad(l)), math.cos(_dRad(l)))) / 15.0;
+  final eqt = q / 15.0 - _fixMod(ra, 24);
+  final decl = _rDeg(math.asin(math.sin(_dRad(e)) * math.sin(_dRad(l))));
+  return [decl, eqt];
+}
+
+// الحساب الفلكي بالطريقة المصرية (الفجر 19.5° والعشاء 17.5°) والعصر بالمذهب الشافعي. الترتيب: الفجر، الشروق، الظهر، العصر، المغرب، العشاء
+List<DateTime> basePrayerTimes(DateTime day, PrayerCity c) {
+  final tz = DateTime(day.year, day.month, day.day, 12).timeZoneOffset.inMinutes / 60.0;
+  final jd = _julianDate(day.year, day.month, day.day) - c.lng / (15.0 * 24.0);
+  final lat = c.lat;
+  double midDay(double t) => _fixMod(12 - _sunPos(jd + t)[1], 24);
+  double angleTime(double angle, double t, bool ccw) {
+    final decl = _sunPos(jd + t)[0];
+    final noon = midDay(t);
+    var x = (-math.sin(_dRad(angle)) - math.sin(_dRad(decl)) * math.sin(_dRad(lat))) / (math.cos(_dRad(decl)) * math.cos(_dRad(lat)));
+    x = x.clamp(-1.0, 1.0).toDouble();
+    final h = _rDeg(math.acos(x)) / 15.0;
+    return noon + (ccw ? -h : h);
+  }
+
+  double asr(double t) {
+    final decl = _sunPos(jd + t)[0];
+    final ang = -_rDeg(math.atan(1.0 / (1 + math.tan(_dRad((lat - decl).abs())))));
+    return angleTime(ang, t, false);
+  }
+
+  var t = <double>[5, 5, 12, 13, 18, 18];
+  for (int k = 0; k < 2; k++) {
+    final tt = t.map((e) => e / 24.0).toList();
+    t = [
+      angleTime(19.5, tt[0], true),
+      angleTime(0.833, tt[1], true),
+      midDay(tt[2]),
+      asr(tt[3]),
+      angleTime(0.833, tt[4], false),
+      angleTime(17.5, tt[5], false),
+    ];
+  }
+  final shift = tz - c.lng / 15.0;
+  return t.map((h) {
+    final mins = ((h + shift) * 60).round().clamp(0, 1439).toInt();
+    return DateTime(day.year, day.month, day.day, mins ~/ 60, mins % 60);
+  }).toList();
+}
+
+PrayerCity currentPrayerCity() => prayerCities[prayerCityIdx.value.clamp(0, prayerCities.length - 1).toInt()];
+
+// الأوقات النهائية بعد تطبيق التعديل اليدوي
+List<DateTime> prayerTimesFor(DateTime day) {
+  final base = basePrayerTimes(day, currentPrayerCity());
+  final adj = prayerAdj.value;
+  return [for (int i = 0; i < 6; i++) base[i].add(Duration(minutes: adj[i]))];
+}
+
+String _fmt12(DateTime t) => '${t.hour % 12 == 0 ? 12 : t.hour % 12}:${_two(t.minute)}';
+String _ampm(DateTime t) => t.hour < 12 ? 'ص' : 'م';
+
+// قوس الشمس: تتحرك الشمس من الشروق إلى الغروب، وبالليل يظهر هلال ونجوم
+class _SunArcPainter extends CustomPainter {
+  final double? frac;
+  _SunArcPainter(this.frac);
+
+  @override
+  void paint(Canvas c, Size s) {
+    const goldLight = Color(0xFFF2DE9F);
+    const topPad = 16.0, pad = 14.0;
+    final rx = (s.width - 2 * pad) / 2;
+    final base = s.height - 6;
+    final ry = base - topPad;
+    final cx = s.width / 2;
+    final rect = Rect.fromLTWH(pad, base - ry, 2 * rx, 2 * ry);
+    final arc = Path()..addArc(rect, math.pi, math.pi);
+
+    c.drawLine(Offset(pad - 8, base), Offset(s.width - pad + 8, base), Paint()..color = gold.withOpacity(0.40)..strokeWidth = 1.2);
+
+    final faint = Paint()
+      ..color = gold.withOpacity(0.35)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.8
+      ..strokeCap = StrokeCap.round;
+    for (final m in arc.computeMetrics()) {
+      for (double d = 0; d < m.length; d += 11) {
+        c.drawPath(m.extractPath(d, math.min(d + 5, m.length)), faint);
+      }
+    }
+
+    final f = frac;
+    if (f != null) {
+      final fr = f.clamp(0.0, 1.0).toDouble();
+      final bright = Paint()
+        ..color = goldLight
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3
+        ..strokeCap = StrokeCap.round;
+      for (final m in arc.computeMetrics()) {
+        c.drawPath(m.extractPath(0, m.length * fr), bright);
+      }
+      final th = math.pi + fr * math.pi;
+      final p = Offset(cx + rx * math.cos(th), base + ry * math.sin(th));
+      c.drawCircle(p, 20, Paint()..shader = RadialGradient(colors: [gold.withOpacity(0.6), Colors.transparent]).createShader(Rect.fromCircle(center: p, radius: 20)));
+      c.drawCircle(p, 7.5, Paint()..color = Color(0xFFFFE9A8));
+      c.drawCircle(p, 7.5, Paint()
+        ..color = gold
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.6);
+    } else {
+      final mc = Offset(cx, topPad + 8);
+      final moon = Path.combine(
+        PathOperation.difference,
+        Path()..addOval(Rect.fromCircle(center: mc, radius: 9)),
+        Path()..addOval(Rect.fromCircle(center: mc + Offset(4.5, -2), radius: 8)),
+      );
+      c.drawCircle(mc, 18, Paint()..shader = RadialGradient(colors: [goldLight.withOpacity(0.35), Colors.transparent]).createShader(Rect.fromCircle(center: mc, radius: 18)));
+      c.drawPath(moon, Paint()..color = goldLight);
+      final star = Paint()..color = Colors.white.withOpacity(0.65);
+      for (final o in [Offset(cx - 90, 40), Offset(cx + 95, 34), Offset(cx - 45, 22), Offset(cx + 55, 44), Offset(cx - 125, 62), Offset(cx + 130, 66)]) {
+        c.drawCircle(o, 1.3, star);
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _SunArcPainter old) => old.frac != frac;
+}
+
+class PrayerCard extends StatefulWidget {
+  final bool tappable;
+  const PrayerCard({super.key, this.tappable = true});
+  @override
+  State<PrayerCard> createState() => _PrayerCardState();
+}
+
+class _PrayerCardState extends State<PrayerCard> {
+  Timer? timer;
+  @override
+  void initState() {
+    super.initState();
+    timer = Timer.periodic(Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    timer?.cancel();
+    super.dispose();
+  }
+
+  String _countdown(Duration d) {
+    final s = d.inSeconds < 0 ? 0 : d.inSeconds;
+    return '${_two(s ~/ 3600)}:${_two((s % 3600) ~/ 60)}:${_two(s % 60)}';
+  }
+
+  Widget _chip(int i, DateTime t, bool isNext, bool past) {
+    const goldLight = Color(0xFFF2DE9F);
+    return Expanded(
+      child: Opacity(
+        opacity: (past && !isNext) ? 0.55 : 1.0,
+        child: Container(
+          margin: EdgeInsets.symmetric(horizontal: 2),
+          padding: EdgeInsets.symmetric(vertical: 8),
+          decoration: BoxDecoration(
+            gradient: isNext ? LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Color(0xFFF7E8B5), gold]) : null,
+            color: isNext ? null : Colors.white.withOpacity(0.08),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: isNext ? Colors.transparent : gold.withOpacity(0.35)),
+            boxShadow: isNext ? [BoxShadow(color: gold.withOpacity(0.5), blurRadius: 12, offset: Offset(0, 3))] : null,
+          ),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Icon(prayerIcons[i], size: 20, color: isNext ? deepGreen : goldLight),
+            SizedBox(height: 4),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(prayerNames[i], style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w800, color: isNext ? deepGreen : Colors.white)),
+            ),
+            SizedBox(height: 2),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Directionality(
+                textDirection: TextDirection.ltr,
+                child: Text(_fmt12(t), style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.bold, height: 1.2, color: isNext ? deepGreen : Colors.white)),
+              ),
+            ),
+            Text(_ampm(t), style: TextStyle(fontSize: 10.5, height: 1.2, color: isNext ? deepGreen.withOpacity(0.8) : Colors.white70)),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+        animation: Listenable.merge([prayerCityIdx, prayerAdj]),
+        builder: (context, _) => _card(context),
+      );
+
+  Widget _card(BuildContext context) {
+    const goldLight = Color(0xFFF2DE9F);
+    final dark = isDark(context);
+    final now = appNow();
+    final today = prayerTimesFor(now);
+    int next = -1;
+    for (final i in const [0, 2, 3, 4, 5]) {
+      if (today[i].isAfter(now)) {
+        next = i;
+        break;
+      }
+    }
+    DateTime nextTime;
+    if (next == -1) {
+      next = 0;
+      nextTime = prayerTimesFor(now.add(Duration(days: 1)))[0];
+    } else {
+      nextTime = today[next];
+    }
+    final remaining = nextTime.difference(now);
+    double? frac;
+    final rise = today[1], set = today[4];
+    if (now.isAfter(rise) && now.isBefore(set)) {
+      frac = now.difference(rise).inSeconds / math.max(1, set.difference(rise).inSeconds);
+    }
+    final radius = BorderRadius.circular(30);
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(begin: Alignment.topRight, end: Alignment.bottomLeft, colors: dark ? [deepDark, deepGreen] : [deepGreen, green]),
+        borderRadius: radius,
+        border: Border.all(color: gold.withOpacity(0.75), width: 1.3),
+        boxShadow: [BoxShadow(color: (dark ? Colors.black : green).withOpacity(0.35), blurRadius: 18, offset: Offset(0, 8))],
+      ),
+      child: ClipRRect(
+        borderRadius: radius,
+        child: Stack(children: [
+          Positioned.fill(child: CustomPaint(painter: StarPatternPainter(gold.withOpacity(0.10)))),
+          Padding(
+            padding: EdgeInsets.fromLTRB(12, 12, 12, 12),
+            child: Column(children: [
+              Row(children: [
+                GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: widget.tappable ? () => Navigator.push(context, MaterialPageRoute(builder: (_) => PrayerSettingsPage())) : null,
+                  child: Container(
+                    padding: EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: gold.withOpacity(0.6)),
+                    ),
+                    child: Row(mainAxisSize: MainAxisSize.min, children: [
+                      Icon(Icons.location_on, size: 16, color: goldLight),
+                      SizedBox(width: 4),
+                      Text(currentPrayerCity().name, style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w700, height: 1.3)),
+                      if (widget.tappable) ...[SizedBox(width: 6), Icon(Icons.edit_outlined, size: 14, color: goldLight)],
+                    ]),
+                  ),
+                ),
+                Spacer(),
+                Text(fmtHijri(now), style: TextStyle(color: goldLight, fontSize: 13, fontWeight: FontWeight.w600)),
+              ]),
+              SizedBox(height: 6),
+              SizedBox(
+                height: 124,
+                child: Stack(children: [
+                  Positioned.fill(child: CustomPaint(painter: _SunArcPainter(frac))),
+                  Align(
+                    alignment: Alignment.bottomCenter,
+                    child: Padding(
+                      padding: EdgeInsets.only(bottom: 4),
+                      child: Column(mainAxisSize: MainAxisSize.min, children: [
+                        Text('الصلاة القادمة', style: TextStyle(color: Colors.white70, fontSize: 12.5, height: 1.3)),
+                        Text(
+                          prayerNames[next],
+                          style: TextStyle(
+                            fontFamily: 'Rsail',
+                            fontSize: 30,
+                            fontWeight: FontWeight.w700,
+                            height: 1.35,
+                            color: goldLight,
+                            shadows: [Shadow(color: Colors.black.withOpacity(0.35), blurRadius: 6, offset: Offset(0, 2))],
+                          ),
+                        ),
+                        Container(
+                          padding: EdgeInsets.symmetric(horizontal: 14, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withOpacity(0.22),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(color: gold.withOpacity(0.5)),
+                          ),
+                          child: Row(mainAxisSize: MainAxisSize.min, children: [
+                            Text('بعد', style: TextStyle(color: Colors.white70, fontSize: 13, height: 1.4)),
+                            SizedBox(width: 6),
+                            Directionality(
+                              textDirection: TextDirection.ltr,
+                              child: Text(_countdown(remaining), style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold, height: 1.3)),
+                            ),
+                          ]),
+                        ),
+                      ]),
+                    ),
+                  ),
+                ]),
+              ),
+              SizedBox(height: 10),
+              Row(children: [
+                for (int i = 0; i < 6; i++) _chip(i, today[i], i == next, today[i].isBefore(now)),
+              ]),
+            ]),
+          ),
+        ]),
+      ),
+    );
+  }
+}
+
+class PrayerSettingsPage extends StatelessWidget {
+  const PrayerSettingsPage({super.key});
+
+  Future<void> _setAdj(int i, int v) async {
+    final l = List<int>.from(prayerAdj.value);
+    l[i] = v.clamp(-180, 180).toInt();
+    await savePrayerAdj(l);
+  }
+
+  Future<void> _pickCity(BuildContext context) async {
+    final i = await showModalBottomSheet<int>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: ListView.builder(
+          itemCount: prayerCities.length,
+          itemBuilder: (_, i) => ListTile(
+            leading: Icon(Icons.location_on, color: green),
+            title: Text(prayerCities[i].name),
+            trailing: i == prayerCityIdx.value ? Icon(Icons.check_circle, color: green) : null,
+            onTap: () => Navigator.pop(ctx, i),
+          ),
+        ),
+      ),
+    );
+    if (i != null) await savePrayerCity(i);
+  }
+
+  Future<void> _pickExact(BuildContext context, int i, DateTime base) async {
+    final cur = base.add(Duration(minutes: prayerAdj.value[i]));
+    final tm = await showTimePicker(context: context, initialTime: TimeOfDay(hour: cur.hour, minute: cur.minute));
+    if (tm == null) return;
+    var diff = (tm.hour * 60 + tm.minute) - (base.hour * 60 + base.minute);
+    if (diff > 720) diff -= 1440;
+    if (diff < -720) diff += 1440;
+    await _setAdj(i, diff);
+  }
+
+  Widget _row(BuildContext context, int i, DateTime base) {
+    final adj = prayerAdj.value[i];
+    final t = base.add(Duration(minutes: adj));
+    return Container(
+      margin: EdgeInsets.only(bottom: 10),
+      padding: EdgeInsets.fromLTRB(14, 10, 10, 10),
+      decoration: BoxDecoration(
+        color: softBg(context),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: gold.withOpacity(0.45)),
+      ),
+      child: Column(children: [
+        Row(children: [
+          Icon(prayerIcons[i], color: accent(context), size: 24),
+          SizedBox(width: 10),
+          Text(prayerNames[i], style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: accent(context))),
+          Spacer(),
+          InkWell(
+            borderRadius: BorderRadius.circular(14),
+            onTap: () => _pickExact(context, i, base),
+            child: Container(
+              padding: EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+              decoration: BoxDecoration(
+                color: gold.withOpacity(0.18),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: gold.withOpacity(0.8)),
+              ),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                Directionality(textDirection: TextDirection.ltr, child: Text(_fmt12(t), style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: ink(context)))),
+                SizedBox(width: 5),
+                Text(_ampm(t), style: TextStyle(fontSize: 13, color: ink(context).withOpacity(0.7))),
+                SizedBox(width: 8),
+                Icon(Icons.edit, size: 16, color: accent(context)),
+              ]),
+            ),
+          ),
+        ]),
+        SizedBox(height: 6),
+        Row(children: [
+          Text('الحساب التلقائي: ${_fmt12(base)} ${_ampm(base)}', style: TextStyle(fontSize: 12.5, color: ink(context).withOpacity(0.65))),
+          Spacer(),
+          IconButton.filledTonal(onPressed: () => _setAdj(i, adj - 1), icon: Icon(Icons.remove), visualDensity: VisualDensity.compact),
+          SizedBox(
+            width: 58,
+            child: Text(adj == 0 ? 'بدون' : (adj > 0 ? '+$adj د' : '$adj د'), textAlign: TextAlign.center, style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: adj == 0 ? ink(context).withOpacity(0.6) : accent(context))),
+          ),
+          IconButton.filledTonal(onPressed: () => _setAdj(i, adj + 1), icon: Icon(Icons.add), visualDensity: VisualDensity.compact),
+        ]),
+      ]),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(title: Text('تعديل مواقيت الصلاة')),
+        body: AnimatedBuilder(
+          animation: Listenable.merge([prayerCityIdx, prayerAdj]),
+          builder: (context, _) {
+            final base = basePrayerTimes(appNow(), currentPrayerCity());
+            return ListView(padding: EdgeInsets.all(16), children: [
+              PrayerCard(tappable: false),
+              SizedBox(height: 16),
+              FilledButton.icon(
+                style: FilledButton.styleFrom(backgroundColor: green, padding: EdgeInsets.symmetric(vertical: 14)),
+                onPressed: () => _pickCity(context),
+                icon: Icon(Icons.location_city),
+                label: Text('المدينة: ${currentPrayerCity().name}', style: TextStyle(fontSize: 17)),
+              ),
+              SizedBox(height: 16),
+              Text('اضغط على الوقت لتحديده بالضبط، أو استعمل + و − لزيادة الدقائق أو إنقاصها.', textAlign: TextAlign.center, style: TextStyle(fontSize: 13, height: 1.7, color: ink(context).withOpacity(0.75))),
+              SizedBox(height: 10),
+              for (int i = 0; i < 6; i++) _row(context, i, base[i]),
+              SizedBox(height: 6),
+              OutlinedButton.icon(
+                onPressed: () => savePrayerAdj(List<int>.filled(6, 0)),
+                icon: Icon(Icons.restart_alt),
+                label: Text('العودة للحساب التلقائي'),
+              ),
+              SizedBox(height: 12),
+              Text(
+                'تُحسب المواقيت فلكياً بالطريقة المصرية (الفجر 19.5° والعشاء 17.5°) والعصر بالمذهب الشافعي، حسب المدينة المختارة وتوقيت جهازك. وقد تختلف دقائق عن تقويم مسجدكم، فعدّلها من هنا.',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 12, height: 1.7, color: ink(context).withOpacity(0.6)),
+              ),
+            ]);
+          },
+        ),
+      );
 }
