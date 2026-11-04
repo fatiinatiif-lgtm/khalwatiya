@@ -4448,6 +4448,9 @@ const Map<String, int> _countWords = {
 };
 const Set<int> _allowedCounts = {3, 7, 21};
 
+// صياغة العدد: ٣ مرات، ٧ مرات، ٢١ مرة
+String _timesText(int n) => n > 10 ? '$n مرة' : '$n مرات';
+
 String _normForCount(String s) => stripTashkeel(s)
     .replaceAll('\u0640', '')
     .replaceAll(RegExp('[\u0623\u0625\u0622\u0671]'), '\u0627')
@@ -4698,7 +4701,9 @@ class _CartouchePainter extends CustomPainter {
   @override
   void paint(Canvas c, Size s) {
     final w = s.width, h = s.height;
-    final dark = Color(0xFF8A6A1F);
+    final dark = Color.lerp(orn, Colors.black, 0.5)!;
+    final light = Color.lerp(orn, Colors.white, 0.8)!;
+    final low = Color.lerp(orn, Colors.black, 0.22)!;
     Path plaque(double i) => Path()
       ..moveTo(i, h / 2)
       ..lineTo(h * 0.55, i)
@@ -4710,7 +4715,7 @@ class _CartouchePainter extends CustomPainter {
     final path = plaque(0);
     c.drawShadow(path, Colors.black, 4, false);
     final rect = Offset.zero & s;
-    c.drawPath(path, Paint()..shader = LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Color(0xFFFFF6D6), orn, Color(0xFFB78F2E)], stops: [0.0, 0.55, 1.0]).createShader(rect));
+    c.drawPath(path, Paint()..shader = LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [light, orn, low], stops: [0.0, 0.55, 1.0]).createShader(rect));
     c.drawPath(path, Paint()
       ..color = dark
       ..style = PaintingStyle.stroke
@@ -4721,7 +4726,7 @@ class _CartouchePainter extends CustomPainter {
       ..strokeWidth = 0.7);
     for (final x in [h * 0.62, w - h * 0.62]) {
       c.drawPath(_starPath(Offset(x, h / 2), 4.6), Paint()..color = dark);
-      c.drawCircle(Offset(x, h / 2), 1.1, Paint()..color = Color(0xFFFFF6D6));
+      c.drawCircle(Offset(x, h / 2), 1.1, Paint()..color = light);
     }
   }
 
@@ -4826,6 +4831,9 @@ class _CountBoxState extends State<CountBox> with TickerProviderStateMixin {
                 final g = math.max(_glow.value, _down ? 1.0 : 0.0);
                 final ring = dark ? lighten(0.35) : green; // لون التقدّم من لون التطبيق
                 final orn = Color.lerp(dark ? Color(0xFFE9C66B) : Color(0xFFC9A047), Colors.white, 0.30 * g)!;
+                // بعد إتمام العدد يتحوّل الإطار كله إلى الأخضر
+                final okGreen = Color.lerp(dark ? Color(0xFF4FD08A) : Color(0xFF2E9B5F), Colors.white, 0.20 * g)!;
+                final frameOrn = done ? okGreen : orn;
                 return Stack(clipBehavior: Clip.none, children: [
                   // الصندوق: داخل سادة + ظل ناعم
                   Container(
@@ -4833,7 +4841,7 @@ class _CountBoxState extends State<CountBox> with TickerProviderStateMixin {
                       color: inner,
                       borderRadius: BorderRadius.circular(26),
                       boxShadow: [
-                        BoxShadow(color: (done ? orn : Colors.black).withOpacity(done ? 0.40 : (dark ? 0.35 : 0.14)), blurRadius: done ? 24 : 12, offset: Offset(0, 5)),
+                        BoxShadow(color: (done ? okGreen : Colors.black).withOpacity(done ? 0.40 : (dark ? 0.35 : 0.14)), blurRadius: done ? 24 : 12, offset: Offset(0, 5)),
                       ],
                     ),
                     child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
@@ -4844,7 +4852,7 @@ class _CountBoxState extends State<CountBox> with TickerProviderStateMixin {
                             width: 64,
                             height: 64,
                             child: Stack(alignment: Alignment.center, children: [
-                              SizedBox.expand(child: CustomPaint(painter: _CounterRingPainter(p, ring, orn, done))),
+                              SizedBox.expand(child: CustomPaint(painter: _CounterRingPainter(p, ring, frameOrn, done))),
                               AnimatedSwitcher(
                                 duration: Duration(milliseconds: 220),
                                 transitionBuilder: (w, a) => ScaleTransition(scale: a, child: FadeTransition(opacity: a, child: w)),
@@ -4869,7 +4877,7 @@ class _CountBoxState extends State<CountBox> with TickerProviderStateMixin {
                                 style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: readAccent(context), height: 1.3),
                               ),
                               Text(
-                                done ? 'تقبّل الله طاعتك' : (widget.count == 0 ? 'المطلوب ${widget.target} مرات' : 'باقي ${widget.target - widget.count}'),
+                                done ? 'تقبّل الله طاعتك' : (widget.count == 0 ? 'المطلوب ${_timesText(widget.target)}' : 'باقي ${widget.target - widget.count}'),
                                 style: TextStyle(fontSize: 12.5, color: readInk(context).withOpacity(0.65), height: 1.4),
                               ),
                             ]),
@@ -4880,18 +4888,18 @@ class _CountBoxState extends State<CountBox> with TickerProviderStateMixin {
                               customBorder: CircleBorder(),
                               child: Container(
                                 padding: EdgeInsets.all(8),
-                                decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: orn, width: 1.2)),
+                                decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: frameOrn, width: 1.2)),
                                 child: Icon(Icons.restart_alt, size: 20, color: readAccent(context)),
                               ),
                             ),
                         ]),
                       ),
-                      Padding(padding: EdgeInsets.fromLTRB(30, 12, 30, 0), child: Container(height: 1, color: orn.withOpacity(0.35))),
+                      Padding(padding: EdgeInsets.fromLTRB(30, 12, 30, 0), child: Container(height: 1, color: frameOrn.withOpacity(0.35))),
                       Padding(padding: EdgeInsets.fromLTRB(26, 10, 26, 28), child: child),
                     ]),
                   ),
                   // إطار الزخرفة (ثابت: شريط + تقدّم)
-                  Positioned.fill(child: IgnorePointer(child: RepaintBoundary(child: CustomPaint(painter: _BandPainter(p, g, ring, orn, done))))),
+                  Positioned.fill(child: IgnorePointer(child: RepaintBoundary(child: CustomPaint(painter: _BandPainter(p, g, ring, frameOrn, done))))),
                   // لمعان متحرك حول الإطار
                   Positioned.fill(
                     child: IgnorePointer(
@@ -4910,8 +4918,8 @@ class _CountBoxState extends State<CountBox> with TickerProviderStateMixin {
                         width: 118,
                         height: 30,
                         child: CustomPaint(
-                          painter: _CartouchePainter(orn),
-                          child: Center(child: Text('${widget.target} مرات', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w900, color: Color(0xFF3B2A06), height: 1.1))),
+                          painter: _CartouchePainter(frameOrn),
+                          child: Center(child: Text(_timesText(widget.target), style: TextStyle(fontSize: 13, fontWeight: FontWeight.w900, color: done ? Color(0xFF0B3B22) : Color(0xFF3B2A06), height: 1.1))),
                         ),
                       ),
                     ),
