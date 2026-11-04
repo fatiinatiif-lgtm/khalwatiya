@@ -473,44 +473,6 @@ class HomePage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final tiles = <_QuickTile>[
-      _QuickTile(
-        icon: Icons.menu_book_rounded,
-        title: 'كتاب الأوراد',
-        subtitle: 'مع فهرس العناوين',
-        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => BookIndexPage())),
-      ),
-      _QuickTile(
-        icon: Icons.format_list_numbered,
-        title: 'المسبعات',
-        subtitle: 'بالعدّ والتهنئة',
-        onTap: () => openText(context, 'المسبعات', 'assets/texts/musabbaat.txt', false),
-      ),
-      _QuickTile(
-        icon: Icons.volunteer_activism,
-        title: 'الصلوات الدرديرية',
-        subtitle: 'النص الكامل',
-        onTap: () => openText(context, 'الصلوات الدرديرية', 'assets/texts/salawat_dardiriyya.txt', false),
-      ),
-      _QuickTile(
-        icon: Icons.waves,
-        title: 'حزب البحر',
-        subtitle: 'النص كاملاً',
-        onTap: () => openTextString(context, 'حزب البحر', hizbAlBahrText),
-      ),
-      _QuickTile(
-        icon: Icons.library_books,
-        title: 'المنظومة',
-        subtitle: 'القصيدة كاملة',
-        onTap: () => openText(context, 'المنظومة', 'assets/texts/manzuma.txt', true),
-      ),
-      _QuickTile(
-        icon: Icons.blur_circular,
-        title: 'المسبحة',
-        subtitle: 'عدّاد الذكر',
-        onTap: () => onGo(2),
-      ),
-    ];
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.light,
       child: Scaffold(
@@ -529,19 +491,6 @@ class HomePage extends StatelessWidget {
                     ),
                   )
                 : SizedBox.shrink(),
-          ),
-          _SectionTitle('الوصول السريع'),
-          Padding(
-            padding: EdgeInsets.symmetric(horizontal: 16),
-            child: GridView.count(
-              shrinkWrap: true,
-              physics: NeverScrollableScrollPhysics(),
-              crossAxisCount: 2,
-              mainAxisSpacing: 14,
-              crossAxisSpacing: 14,
-              childAspectRatio: 1.04,
-              children: tiles,
-            ),
           ),
           SizedBox(height: 22),
           Padding(padding: EdgeInsets.symmetric(horizontal: 16), child: ThanksCard()),
@@ -4153,95 +4102,186 @@ class CountBox extends StatefulWidget {
   State<CountBox> createState() => _CountBoxState();
 }
 
-class _CountBoxState extends State<CountBox> with SingleTickerProviderStateMixin {
+// موجة ملوّنة تنتشر من مكان اللمسة
+class _RipplePainter extends CustomPainter {
+  final Offset pos;
+  final double t;
+  final Color color;
+  _RipplePainter(this.pos, this.t, this.color);
+  @override
+  void paint(Canvas c, Size s) {
+    if (t <= 0 || t >= 1) return;
+    final r = s.longestSide * Curves.easeOut.transform(t);
+    c.drawCircle(pos, r, Paint()..color = color.withOpacity(0.30 * (1 - t)));
+  }
+
+  @override
+  bool shouldRepaint(covariant _RipplePainter old) => old.t != t || old.pos != pos || old.color != color;
+}
+
+class _CountBoxState extends State<CountBox> with TickerProviderStateMixin {
   late final AnimationController _c = AnimationController(vsync: this, duration: Duration(milliseconds: 280));
+  late final AnimationController _r = AnimationController(vsync: this, duration: Duration(milliseconds: 700));
   late final Animation<double> _scale = TweenSequence<double>([
-    TweenSequenceItem(tween: Tween<double>(begin: 1.0, end: 1.03).chain(CurveTween(curve: Curves.easeOut)), weight: 40),
-    TweenSequenceItem(tween: Tween<double>(begin: 1.03, end: 1.0).chain(CurveTween(curve: Curves.easeInOut)), weight: 60),
+    TweenSequenceItem(tween: Tween<double>(begin: 1.0, end: 1.035).chain(CurveTween(curve: Curves.easeOut)), weight: 40),
+    TweenSequenceItem(tween: Tween<double>(begin: 1.035, end: 1.0).chain(CurveTween(curve: Curves.easeInOut)), weight: 60),
   ]).animate(_c);
+  Offset _tapPos = Offset.zero;
 
   @override
   void dispose() {
     _c.dispose();
+    _r.dispose();
     super.dispose();
   }
 
   void _tap() {
     _c.forward(from: 0); // يكبر شوي ثم يرجع
+    _r.forward(from: 0); // موجة لون من مكان اللمس
+    if (widget.count + 1 == widget.target) {
+      HapticFeedback.mediumImpact();
+    } else {
+      HapticFeedback.selectionClick();
+    }
     widget.onTap();
   }
 
-  Widget _corner(Color col) => Transform.rotate(angle: 0.785398, child: Container(width: 8, height: 8, color: col));
+  // اللون يتغيّر مع التقدّم: أزرق هادئ ← ذهبي دافئ ← أخضر عند الإتمام
+  Color _colorFor(double p, bool dark) {
+    final a = dark ? Color(0xFF6EC1E4) : Color(0xFF2B7A9B);
+    final b = dark ? Color(0xFFFFC66B) : Color(0xFFE08A1E);
+    final g = dark ? Color(0xFF4FD08A) : Color(0xFF2E9B5F);
+    if (p < 0.5) return Color.lerp(a, b, p / 0.5)!;
+    return Color.lerp(b, g, (p - 0.5) / 0.5)!;
+  }
+
+  Widget _corner(Color col) => Transform.rotate(angle: 0.785398, child: Container(width: 9, height: 9, decoration: BoxDecoration(color: col, border: Border.all(color: Colors.white.withOpacity(0.7), width: 0.8))));
 
   @override
   Widget build(BuildContext context) {
     final dark = isDark(context);
     final done = widget.count >= widget.target;
-    const okGreen = Color(0xFF2E9B5F);
-    final base = dark ? Color(0xFF6EC1E4) : Color(0xFF2B7A9B); // لون الإطار (أزرق هادئ بدل الذهبي)
-    final frame = done ? okGreen : base;
+    final prog = (widget.count / widget.target).clamp(0.0, 1.0).toDouble();
     return ScaleTransition(
       scale: _scale,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
+        onTapDown: (d) => _tapPos = d.localPosition - Offset(10, 10),
         onTap: _tap,
         child: Padding(
           padding: EdgeInsets.symmetric(vertical: 10, horizontal: 10),
-          child: Stack(clipBehavior: Clip.none, children: [
-            Container(
-              padding: EdgeInsets.all(4),
-              decoration: BoxDecoration(
-                color: frame.withOpacity(done ? 0.12 : 0.08), // شفاف
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: frame.withOpacity(done ? 0.9 : 0.7), width: done ? 2.2 : 1.6),
-              ),
-              child: Container(
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: frame.withOpacity(0.35), width: 1),
-                ),
-                child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                  Padding(
-                    padding: EdgeInsets.fromLTRB(10, 8, 10, 0),
-                    child: Row(children: [
-                      Container(
-                        padding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: done ? okGreen : frame.withOpacity(0.14),
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(color: done ? okGreen : frame.withOpacity(0.8)),
-                        ),
-                        child: Row(mainAxisSize: MainAxisSize.min, children: [
-                          Icon(done ? Icons.check_circle : Icons.touch_app, size: 20, color: done ? Colors.white : frame),
-                          SizedBox(width: 6),
-                          Text(
-                            done ? 'تم  ${widget.target} / ${widget.target}' : '${widget.count} / ${widget.target}',
-                            style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: done ? Colors.white : frame),
+          child: TweenAnimationBuilder<double>(
+            tween: Tween<double>(begin: 0, end: prog),
+            duration: Duration(milliseconds: 500),
+            curve: Curves.easeOutCubic,
+            child: widget.child,
+            builder: (context, p, child) {
+              final frame = _colorFor(p, dark);
+              final radius = BorderRadius.circular(24);
+              return Stack(clipBehavior: Clip.none, children: [
+                Container(
+                  decoration: BoxDecoration(
+                    borderRadius: radius,
+                    gradient: LinearGradient(
+                      begin: Alignment.topRight,
+                      end: Alignment.bottomLeft,
+                      colors: [frame.withOpacity(dark ? 0.22 : 0.15), frame.withOpacity(dark ? 0.07 : 0.04)],
+                    ),
+                    border: Border.all(color: frame.withOpacity(0.9), width: done ? 2.4 : 1.8),
+                    boxShadow: [BoxShadow(color: frame.withOpacity(done ? 0.40 : 0.22), blurRadius: done ? 24 : 14, spreadRadius: done ? 1 : 0, offset: Offset(0, 5))],
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(22),
+                    child: Stack(children: [
+                      // تعبئة تتقدّم مع العدّ
+                      Positioned.fill(
+                        child: Align(
+                          alignment: AlignmentDirectional.centerStart,
+                          child: FractionallySizedBox(
+                            widthFactor: p.clamp(0.0, 1.0).toDouble(),
+                            heightFactor: 1,
+                            child: DecoratedBox(
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(begin: AlignmentDirectional.centerStart, end: AlignmentDirectional.centerEnd, colors: [frame.withOpacity(dark ? 0.30 : 0.24), frame.withOpacity(dark ? 0.10 : 0.07)]),
+                              ),
+                            ),
                           ),
-                        ]),
-                      ),
-                      SizedBox(width: 10),
-                      if (widget.count == 0)
-                        Expanded(child: Text('اضغط على الصندوق للعدّ', style: TextStyle(fontSize: 12, color: ink(context).withOpacity(0.6))))
-                      else
-                        Spacer(),
-                      if (widget.count > 0)
-                        InkWell(
-                          onTap: widget.onReset,
-                          customBorder: CircleBorder(),
-                          child: Padding(padding: EdgeInsets.all(6), child: Icon(Icons.restart_alt, size: 22, color: ink(context).withOpacity(0.65))),
                         ),
+                      ),
+                      Positioned.fill(child: IgnorePointer(child: CustomPaint(painter: StarPatternPainter(frame.withOpacity(dark ? 0.14 : 0.10))))),
+                      Positioned.fill(
+                        child: IgnorePointer(
+                          child: AnimatedBuilder(animation: _r, builder: (_, __) => CustomPaint(painter: _RipplePainter(_tapPos, _r.value, frame))),
+                        ),
+                      ),
+                      Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                        Padding(
+                          padding: EdgeInsets.fromLTRB(12, 10, 10, 0),
+                          child: Row(children: [
+                            SizedBox(
+                              width: 50,
+                              height: 50,
+                              child: Stack(alignment: Alignment.center, children: [
+                                SizedBox.expand(
+                                  child: CircularProgressIndicator(
+                                    value: p,
+                                    strokeWidth: 4.5,
+                                    strokeCap: StrokeCap.round,
+                                    backgroundColor: frame.withOpacity(0.22),
+                                    valueColor: AlwaysStoppedAnimation<Color>(frame),
+                                  ),
+                                ),
+                                AnimatedSwitcher(
+                                  duration: Duration(milliseconds: 220),
+                                  transitionBuilder: (w, a) => ScaleTransition(scale: a, child: FadeTransition(opacity: a, child: w)),
+                                  child: done
+                                      ? Icon(Icons.check_rounded, key: ValueKey('done'), size: 28, color: frame)
+                                      : Text('${widget.count}', key: ValueKey(widget.count), style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: frame, height: 1.1)),
+                                ),
+                              ]),
+                            ),
+                            SizedBox(width: 12),
+                            Expanded(
+                              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                Row(children: [
+                                  Flexible(
+                                    child: Text(
+                                      done ? 'تمّ  ${widget.target} / ${widget.target}' : (widget.count == 0 ? 'اضغط للعدّ' : '${widget.count} / ${widget.target}'),
+                                      style: TextStyle(fontSize: 16.5, fontWeight: FontWeight.w800, color: frame, height: 1.3),
+                                    ),
+                                  ),
+                                  if (done) ...[SizedBox(width: 6), Icon(Icons.auto_awesome, size: 18, color: dark ? Color(0xFFFFD98A) : Color(0xFFC6A75E))],
+                                ]),
+                                Text(
+                                  done ? 'تقبّل الله طاعتك' : (widget.count == 0 ? 'المطلوب ${widget.target} مرات' : 'باقي ${widget.target - widget.count}'),
+                                  style: TextStyle(fontSize: 12.5, color: ink(context).withOpacity(0.65), height: 1.4),
+                                ),
+                              ]),
+                            ),
+                            if (widget.count > 0)
+                              InkWell(
+                                onTap: widget.onReset,
+                                customBorder: CircleBorder(),
+                                child: Container(
+                                  padding: EdgeInsets.all(7),
+                                  decoration: BoxDecoration(shape: BoxShape.circle, color: frame.withOpacity(0.14), border: Border.all(color: frame.withOpacity(0.5))),
+                                  child: Icon(Icons.restart_alt, size: 20, color: frame),
+                                ),
+                              ),
+                          ]),
+                        ),
+                        Padding(padding: EdgeInsets.fromLTRB(14, 6, 14, 10), child: child),
+                      ]),
                     ]),
                   ),
-                  Padding(padding: EdgeInsets.fromLTRB(12, 4, 12, 6), child: widget.child),
-                ]),
-              ),
-            ),
-            Positioned(top: -3, right: -3, child: _corner(frame)),
-            Positioned(top: -3, left: -3, child: _corner(frame)),
-            Positioned(bottom: -3, right: -3, child: _corner(frame)),
-            Positioned(bottom: -3, left: -3, child: _corner(frame)),
-          ]),
+                ),
+                Positioned(top: -4, right: -4, child: _corner(frame)),
+                Positioned(top: -4, left: -4, child: _corner(frame)),
+                Positioned(bottom: -4, right: -4, child: _corner(frame)),
+                Positioned(bottom: -4, left: -4, child: _corner(frame)),
+              ]);
+            },
+          ),
         ),
       ),
     );
