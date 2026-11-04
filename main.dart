@@ -390,14 +390,14 @@ class _HomeShellState extends State<HomeShell> {
   Widget build(BuildContext context) {
     final dark = isDark(context);
     const goldLight = Color(0xFFF2DE9F);
-    final barRadius = BorderRadius.circular(34);
+    final barRadius = BorderRadius.circular(40);
     return Scaffold(
       body: IndexedStack(index: selected, children: pages),
       bottomNavigationBar: SafeArea(
         top: false,
         child: Container(
-          margin: EdgeInsets.fromLTRB(14, 6, 14, 12),
-          height: 78,
+          margin: EdgeInsets.fromLTRB(10, 6, 10, 12),
+          height: 96,
           decoration: BoxDecoration(
             gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: dark ? [deepGreen, deepDark] : [green, deepGreen]),
             borderRadius: barRadius,
@@ -440,26 +440,26 @@ class _HomeShellState extends State<HomeShell> {
         AnimatedContainer(
           duration: Duration(milliseconds: 320),
           curve: Curves.easeOutCubic,
-          width: sel ? 58 : 40,
-          height: 34,
+          width: sel ? 72 : 48,
+          height: 44,
           decoration: BoxDecoration(
             gradient: sel ? LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Color(0xFFF7E8B5), gold]) : null,
-            borderRadius: BorderRadius.circular(17),
-            boxShadow: sel ? [BoxShadow(color: gold.withOpacity(0.55), blurRadius: 14, offset: Offset(0, 3))] : null,
+            borderRadius: BorderRadius.circular(22),
+            boxShadow: sel ? [BoxShadow(color: gold.withOpacity(0.55), blurRadius: 16, offset: Offset(0, 3))] : null,
           ),
           child: Center(
             child: AnimatedScale(
               scale: sel ? 1.1 : 1.0,
               duration: Duration(milliseconds: 320),
               curve: Curves.easeOutBack,
-              child: Icon(sel ? _iconsSel[i] : _icons[i], size: 24, color: sel ? deepGreen : Colors.white.withOpacity(0.8)),
+              child: Icon(sel ? _iconsSel[i] : _icons[i], size: 31, color: sel ? deepGreen : Colors.white.withOpacity(0.8)),
             ),
           ),
         ),
-        SizedBox(height: 4),
+        SizedBox(height: 5),
         AnimatedDefaultTextStyle(
           duration: Duration(milliseconds: 250),
-          style: TextStyle(fontSize: 11.5, height: 1.2, fontWeight: sel ? FontWeight.w800 : FontWeight.w500, color: sel ? Color(0xFFF2DE9F) : Colors.white.withOpacity(0.65)),
+          style: TextStyle(fontSize: 14, height: 1.2, fontWeight: sel ? FontWeight.w800 : FontWeight.w600, color: sel ? Color(0xFFF2DE9F) : Colors.white.withOpacity(0.65)),
           child: Text(_labels[i], maxLines: 1),
         ),
       ]),
@@ -916,6 +916,12 @@ class AwradPage extends StatelessWidget {
             subtitle: 'القصيدة كاملة',
             icon: Icons.library_books,
             onTap: () => openText(context, 'المنظومة', 'assets/texts/manzuma.txt', true),
+          ),
+          FancyCard(
+            title: 'دعاء الختام',
+            subtitle: 'النص كاملاً',
+            icon: Icons.auto_awesome,
+            onTap: () => openTextString(context, 'دعاء الختام', duaKhatmText),
           ),
           FancyCard(
             title: 'حزب البحر',
@@ -3005,15 +3011,41 @@ bool _hasHighlight(String w) {
   return false;
 }
 
+// اسم "محمد" (بأي تشكيل أو تنوين، ومع و/ف/ب/ل/ك في أوله): أخضر ويخرج منه نور
+bool _isMuhammad(String w) {
+  final n = _normWord(w);
+  if (n.length < 4) return false;
+  for (int skip = 0; skip <= 2 && skip < n.length; skip++) {
+    if (skip > 0 && !'وفبلك'.contains(n[skip - 1])) break;
+    final rest = n.substring(skip);
+    if (rest == 'محمد' || rest == 'محمدا') return true;
+  }
+  return false;
+}
+
+TextStyle muhammadStyle(BuildContext c, TextStyle st) {
+  final dark = isDark(c);
+  return st.copyWith(
+    color: dark ? const Color(0xFF69F0AE) : const Color(0xFF0B8F4D),
+    // الظل لا يغيّر عرض الكلمة، فلا يتأثر ضبط السطر بالكشيدة
+    shadows: [
+      Shadow(color: (dark ? const Color(0xFF00E676) : const Color(0xFF2ECC71)).withOpacity(0.95), blurRadius: 8),
+      Shadow(color: (dark ? const Color(0xFFB9F6CA) : const Color(0xFFFFD86B)).withOpacity(0.80), blurRadius: 18),
+      Shadow(color: (dark ? const Color(0xFF00E676) : const Color(0xFFFFE08A)).withOpacity(0.40), blurRadius: 30),
+    ],
+  );
+}
+
 // سطر واحد: الكلمات المميزة بلون مختلف (اللون فقط، دون تغيير العرض أو الوزن حتى لا يتأثر الضبط)
 Widget hiText(BuildContext context, String line, TextStyle st) {
   final hi = st.copyWith(color: highlightColor(context));
+  final mu = muhammadStyle(context, st);
   final spans = <InlineSpan>[];
   final words = line.split(' ');
   for (int i = 0; i < words.length; i++) {
     if (i > 0) spans.add(TextSpan(text: ' '));
     final w = words[i];
-    spans.add(TextSpan(text: w, style: _hasHighlight(w) ? hi : null));
+    spans.add(TextSpan(text: w, style: _isMuhammad(w) ? mu : (_hasHighlight(w) ? hi : null)));
   }
   return Text.rich(TextSpan(style: st, children: spans), maxLines: 1, softWrap: false, overflow: TextOverflow.visible);
 }
@@ -3120,6 +3152,9 @@ class ThemeColorsPage extends StatelessWidget {
 
 
 // نص حزب البحر (مضمّن داخل التطبيق)
+const String duaKhatmText = r'''دعاء الختام
+اللَّهُمَّ صَلِّ وَسَلِّمْ عَلَى سَيِّدِنَا مُحَمَّدٍ فِي الأَوَّلِينَ وَصَلِّ وَسَلِّمْ عَلَى سَيِّدِنَا مُحَمَّدٍ فِي الآخِرِينَ وَصَلِّ وَسَلِّمْ عَلَى سَيِّدِنَا مُحَمَّدٍ فِي كُلِّ وَقْتٍ وَحِينٍ وَصَلِّ وَسَلِّمْ عَلَى سَيِّدِنَا مُحَمَّدٍ فِي المَلَإِ الأَعْلَى إِلَى يَوْمِ الدِّينِ وَصَلِّ وَسَلِّمْ عَلَى جَمِيعِ الأَنْبِيَاءِ وَالمُرْسَلِينَ وَعَلَى المَلَائِكَةِ المُقَرَّبِينَ وَعَلَى عِبَادِ اللهِ الصَّالِحِينَ مِنْ أَهْلِ السَّمَاوَاتِ وَأَهْلِ الأَرَضِينَ وَرَضِيَ اللهُ تَبَارَكَ وَتَعَالَى عَنْ سَادَاتِنَا ذَوِي القَدْرِ الجَلِيِّ أَبِي بَكْرٍ وَعُمَرَ وَعُثْمَانَ وَعَلِيٍّ وَعَنْ سَائِرِ أَصْحَابِ رَسُولِ اللهِ ﷺ أَجْمَعِينَ وَالتَّابِعِينَ لَهُمْ بِإِحْسَانٍ إِلَى يَوْمِ الدِّينِ وَاحْشُرْنَا وَارْحَمْنَا مَعَهُمْ بِرَحْمَتِكَ يَا أَرْحَمَ الرَّاحِمِينَ يَا اللهُ يَا حَيُّ يَا قَيُّومُ لَا إِلَهَ إِلَّا أَنْتَ يَا اللهُ يَا رَبَّنَا يَا وَاسِعَ المَغْفِرَةِ يَا أَرْحَمَ الرَّاحِمِينَ اللَّهُمَّ آمِينَ.''';
+
 const String hizbAlBahrText = r'''حزب البحر
 بسم الله الرحمن الرحيم
 اللهم يا الله يا عليّ يا عظيم، يا حليم يا عليم؛
@@ -4093,6 +4128,116 @@ CountSplit? splitCount(String paragraph) {
 
 int? countTarget(String paragraph) => splitCount(paragraph)?.target;
 
+// ===== زخارف صناديق العدّ =====
+// وردة ثمانية البتلات
+void _drawRosette(Canvas c, Offset o, double r, Color petal, Color core) {
+  final p = Paint()..color = petal;
+  for (int k = 0; k < 8; k++) {
+    final a = k * math.pi / 4;
+    c.drawCircle(o + Offset(math.cos(a), math.sin(a)) * (r * 0.62), r * 0.34, p);
+  }
+  c.drawCircle(o, r * 0.40, Paint()..color = core);
+}
+
+class _RosettePainter extends CustomPainter {
+  final Color petal, core;
+  _RosettePainter(this.petal, this.core);
+  @override
+  void paint(Canvas c, Size s) {
+    final o = s.center(Offset.zero);
+    c.drawCircle(o, s.width / 2, Paint()..color = Colors.white.withOpacity(0.9));
+    _drawRosette(c, o, s.width / 2 - 1.5, petal, core);
+  }
+
+  @override
+  bool shouldRepaint(covariant _RosettePainter old) => old.petal != petal || old.core != core;
+}
+
+// شبكة دوائر متداخلة خفيفة (نمط إسلامي كلاسيكي) كخلفية
+class _LatticePainter extends CustomPainter {
+  final Color color;
+  _LatticePainter(this.color);
+  @override
+  void paint(Canvas c, Size s) {
+    const r = 17.0;
+    final p = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 0.9;
+    for (double y = 0; y <= s.height + r; y += r) {
+      for (double x = 0; x <= s.width + r; x += r) {
+        c.drawCircle(Offset(x, y), r, p);
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _LatticePainter old) => old.color != color;
+}
+
+// إطار مزدوج بزوايا مقعّرة مع وردة في كل زاوية وفصوص في المنتصف
+class _BoxFramePainter extends CustomPainter {
+  final Color color, accent;
+  _BoxFramePainter(this.color, this.accent);
+
+  Path _frame(Size s, double inset, double cut) {
+    final r = Rect.fromLTWH(inset, inset, s.width - 2 * inset, s.height - 2 * inset);
+    final rad = Radius.circular(cut);
+    return Path()
+      ..moveTo(r.left + cut, r.top)
+      ..lineTo(r.right - cut, r.top)
+      ..arcToPoint(Offset(r.right, r.top + cut), radius: rad, clockwise: false)
+      ..lineTo(r.right, r.bottom - cut)
+      ..arcToPoint(Offset(r.right - cut, r.bottom), radius: rad, clockwise: false)
+      ..lineTo(r.left + cut, r.bottom)
+      ..arcToPoint(Offset(r.left, r.bottom - cut), radius: rad, clockwise: false)
+      ..lineTo(r.left, r.top + cut)
+      ..arcToPoint(Offset(r.left + cut, r.top), radius: rad, clockwise: false)
+      ..close();
+  }
+
+  @override
+  void paint(Canvas c, Size s) {
+    final outer = Paint()
+      ..color = color.withOpacity(0.75)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.3;
+    final inner = Paint()
+      ..color = accent.withOpacity(0.55)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 0.9;
+    c.drawPath(_frame(s, 5, 14), outer);
+    c.drawPath(_frame(s, 10, 10), inner);
+
+    // وردة صغيرة في كل زاوية
+    for (final o in [Offset(5, 5), Offset(s.width - 5, 5), Offset(5, s.height - 5), Offset(s.width - 5, s.height - 5)]) {
+      _drawRosette(c, o, 6, accent, Colors.white.withOpacity(0.9));
+    }
+
+    // زخرفة المنتصف أعلى وأسفل: معين تحيط به نقطتان
+    final dot = Paint()..color = accent.withOpacity(0.85);
+    for (final y in [5.0, s.height - 5]) {
+      final cx = s.width / 2;
+      c.drawCircle(Offset(cx - 14, y), 1.8, dot);
+      c.drawCircle(Offset(cx + 14, y), 1.8, dot);
+      final d = Path()
+        ..moveTo(cx, y - 5)
+        ..lineTo(cx + 5, y)
+        ..lineTo(cx, y + 5)
+        ..lineTo(cx - 5, y)
+        ..close();
+      c.drawPath(d, Paint()..color = accent);
+      c.drawPath(d, Paint()
+        ..color = Colors.white.withOpacity(0.8)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 0.8);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _BoxFramePainter old) => old.color != color || old.accent != accent;
+}
+
 class CountBox extends StatefulWidget {
   final Widget child;
   final int count, target;
@@ -4126,7 +4271,13 @@ class _CountBoxState extends State<CountBox> with TickerProviderStateMixin {
     TweenSequenceItem(tween: Tween<double>(begin: 1.0, end: 1.035).chain(CurveTween(curve: Curves.easeOut)), weight: 40),
     TweenSequenceItem(tween: Tween<double>(begin: 1.035, end: 1.0).chain(CurveTween(curve: Curves.easeInOut)), weight: 60),
   ]).animate(_c);
+  // وهج قصير: تفتح الألوان عند الضغط ثم ترجع
+  late final Animation<double> _glow = TweenSequence<double>([
+    TweenSequenceItem(tween: Tween<double>(begin: 0.0, end: 1.0).chain(CurveTween(curve: Curves.easeOut)), weight: 25),
+    TweenSequenceItem(tween: Tween<double>(begin: 1.0, end: 0.0).chain(CurveTween(curve: Curves.easeInOut)), weight: 75),
+  ]).animate(_c);
   Offset _tapPos = Offset.zero;
+  bool _down = false;
 
   @override
   void dispose() {
@@ -4155,7 +4306,7 @@ class _CountBoxState extends State<CountBox> with TickerProviderStateMixin {
     return Color.lerp(b, g, (p - 0.5) / 0.5)!;
   }
 
-  Widget _corner(Color col) => Transform.rotate(angle: 0.785398, child: Container(width: 9, height: 9, decoration: BoxDecoration(color: col, border: Border.all(color: Colors.white.withOpacity(0.7), width: 0.8))));
+  Widget _corner(Color col) => SizedBox(width: 22, height: 22, child: CustomPaint(painter: _RosettePainter(col, Color(0xFFE9C66B))));
 
   @override
   Widget build(BuildContext context) {
@@ -4166,7 +4317,12 @@ class _CountBoxState extends State<CountBox> with TickerProviderStateMixin {
       scale: _scale,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onTapDown: (d) => _tapPos = d.localPosition - Offset(10, 10),
+        onTapDown: (d) {
+          _tapPos = d.localPosition - Offset(10, 10);
+          setState(() => _down = true);
+        },
+        onTapUp: (_) => setState(() => _down = false),
+        onTapCancel: () => setState(() => _down = false),
         onTap: _tap,
         child: Padding(
           padding: EdgeInsets.symmetric(vertical: 10, horizontal: 10),
@@ -4175,8 +4331,9 @@ class _CountBoxState extends State<CountBox> with TickerProviderStateMixin {
             duration: Duration(milliseconds: 500),
             curve: Curves.easeOutCubic,
             child: widget.child,
-            builder: (context, p, child) {
-              final frame = _colorFor(p, dark);
+            builder: (context, p, child) => AnimatedBuilder(animation: _glow, builder: (context, _) {
+              final g = math.max(_glow.value, _down ? 1.0 : 0.0);
+              final frame = Color.lerp(_colorFor(p, dark), Colors.white, 0.24 * g)!;
               final radius = BorderRadius.circular(24);
               return Stack(clipBehavior: Clip.none, children: [
                 Container(
@@ -4185,10 +4342,10 @@ class _CountBoxState extends State<CountBox> with TickerProviderStateMixin {
                     gradient: LinearGradient(
                       begin: Alignment.topRight,
                       end: Alignment.bottomLeft,
-                      colors: [frame.withOpacity(dark ? 0.22 : 0.15), frame.withOpacity(dark ? 0.07 : 0.04)],
+                      colors: [frame.withOpacity((dark ? 0.22 : 0.15) + 0.12 * g), frame.withOpacity((dark ? 0.07 : 0.04) + 0.08 * g)],
                     ),
                     border: Border.all(color: frame.withOpacity(0.9), width: done ? 2.4 : 1.8),
-                    boxShadow: [BoxShadow(color: frame.withOpacity(done ? 0.40 : 0.22), blurRadius: done ? 24 : 14, spreadRadius: done ? 1 : 0, offset: Offset(0, 5))],
+                    boxShadow: [BoxShadow(color: frame.withOpacity((done ? 0.40 : 0.22) + 0.15 * g), blurRadius: (done ? 24 : 14) + 6 * g, spreadRadius: done ? 1 : 0, offset: Offset(0, 5))],
                   ),
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(22),
@@ -4202,13 +4359,14 @@ class _CountBoxState extends State<CountBox> with TickerProviderStateMixin {
                             heightFactor: 1,
                             child: DecoratedBox(
                               decoration: BoxDecoration(
-                                gradient: LinearGradient(begin: AlignmentDirectional.centerStart, end: AlignmentDirectional.centerEnd, colors: [frame.withOpacity(dark ? 0.30 : 0.24), frame.withOpacity(dark ? 0.10 : 0.07)]),
+                                gradient: LinearGradient(begin: AlignmentDirectional.centerStart, end: AlignmentDirectional.centerEnd, colors: [frame.withOpacity((dark ? 0.30 : 0.24) + 0.12 * g), frame.withOpacity((dark ? 0.10 : 0.07) + 0.06 * g)]),
                               ),
                             ),
                           ),
                         ),
                       ),
-                      Positioned.fill(child: IgnorePointer(child: CustomPaint(painter: StarPatternPainter(frame.withOpacity(dark ? 0.14 : 0.10))))),
+                      Positioned.fill(child: IgnorePointer(child: CustomPaint(painter: _LatticePainter(frame.withOpacity(dark ? 0.13 : 0.11))))),
+                      Positioned.fill(child: IgnorePointer(child: CustomPaint(painter: _BoxFramePainter(frame, done ? Color(0xFFE9C66B) : frame)))),
                       Positioned.fill(
                         child: IgnorePointer(
                           child: AnimatedBuilder(animation: _r, builder: (_, __) => CustomPaint(painter: _RipplePainter(_tapPos, _r.value, frame))),
@@ -4216,7 +4374,7 @@ class _CountBoxState extends State<CountBox> with TickerProviderStateMixin {
                       ),
                       Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                         Padding(
-                          padding: EdgeInsets.fromLTRB(12, 10, 10, 0),
+                          padding: EdgeInsets.fromLTRB(20, 18, 16, 0),
                           child: Row(children: [
                             SizedBox(
                               width: 50,
@@ -4270,17 +4428,17 @@ class _CountBoxState extends State<CountBox> with TickerProviderStateMixin {
                               ),
                           ]),
                         ),
-                        Padding(padding: EdgeInsets.fromLTRB(14, 6, 14, 10), child: child),
+                        Padding(padding: EdgeInsets.fromLTRB(22, 8, 22, 20), child: child),
                       ]),
                     ]),
                   ),
                 ),
-                Positioned(top: -4, right: -4, child: _corner(frame)),
-                Positioned(top: -4, left: -4, child: _corner(frame)),
-                Positioned(bottom: -4, right: -4, child: _corner(frame)),
-                Positioned(bottom: -4, left: -4, child: _corner(frame)),
+                Positioned(top: -9, right: -9, child: _corner(frame)),
+                Positioned(top: -9, left: -9, child: _corner(frame)),
+                Positioned(bottom: -9, right: -9, child: _corner(frame)),
+                Positioned(bottom: -9, left: -9, child: _corner(frame)),
               ]);
-            },
+            }),
           ),
         ),
       ),
