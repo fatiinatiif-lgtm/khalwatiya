@@ -63,7 +63,7 @@ TextStyle bodyStyle(BuildContext c) {
     height: cfg.lineH,
     wordSpacing: cfg.wordSp,
     fontFamily: fontFamilies[cfg.family],
-    color: colorValues[cfg.color] ?? ink(c),
+    color: colorValues[cfg.color] ?? readInk(c),
     fontWeight: cfg.bold ? FontWeight.w800 : FontWeight.w500,
   );
 }
@@ -74,7 +74,7 @@ TextStyle titleStyle(BuildContext c) {
     fontSize: cfg.size,
     height: cfg.lineH,
     fontFamily: fontFamilies[cfg.family],
-    color: colorValues[cfg.color] ?? accent(c),
+    color: colorValues[cfg.color] ?? readAccent(c),
     fontWeight: FontWeight.bold,
   );
 }
@@ -140,6 +140,7 @@ Future<void> loadFavorites() async {
   final p = await SharedPreferences.getInstance();
   favorites.value = p.getStringList('favorites') ?? [];
   darkMode.value = p.getBool('dark') ?? false;
+  paperMode.value = (p.getInt('paper_mode') ?? 0).clamp(0, 3).toInt();
   lastPdfPage.value = p.getInt('pdf_last') ?? 0;
   paletteIdx.value = (p.getInt('palette') ?? 0).clamp(0, palettes.length - 1).toInt();
   timeOffset = Duration(milliseconds: p.getInt('clock_off_ms') ?? 0);
@@ -222,13 +223,13 @@ class KhalwatiApp extends StatelessWidget {
             useMaterial3: true,
             colorScheme: ColorScheme.fromSeed(seedColor: green),
             scaffoldBackgroundColor: tint(0.04),
-            appBarTheme: AppBarTheme(backgroundColor: deepGreen, foregroundColor: Colors.white, centerTitle: true),
+            appBarTheme: AppBarTheme(backgroundColor: deepGreen, foregroundColor: Colors.white, centerTitle: true, titleTextStyle: TextStyle(fontFamily: 'Rsail', fontSize: 25, fontWeight: FontWeight.w700, color: Colors.white)),
           ),
           darkTheme: ThemeData(
             useMaterial3: true,
             colorScheme: ColorScheme.fromSeed(seedColor: green, brightness: Brightness.dark),
             scaffoldBackgroundColor: darkTint(0.06),
-            appBarTheme: AppBarTheme(backgroundColor: deepDark, foregroundColor: Colors.white, centerTitle: true),
+            appBarTheme: AppBarTheme(backgroundColor: deepDark, foregroundColor: Colors.white, centerTitle: true, titleTextStyle: TextStyle(fontFamily: 'Rsail', fontSize: 25, fontWeight: FontWeight.w700, color: Colors.white)),
           ),
           home: SplashScreen(),
         ),
@@ -278,7 +279,7 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
     ctrl = AnimationController(vsync: this, duration: Duration(seconds: 5));
     ctrl.addStatusListener((st) {
       if (st == AnimationStatus.completed && mounted) {
-        Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => HomeShell()));
+        Navigator.of(context).pushReplacement(SoftRoute(builder: (_) => HomeShell()));
       }
     });
     ctrl.forward();
@@ -409,7 +410,9 @@ class _HomeShellState extends State<HomeShell> {
           ),
           child: ClipRRect(
             borderRadius: barRadius,
-            child: Stack(children: [
+            child: LayoutBuilder(builder: (context, bc) {
+              final itemW = bc.maxWidth / _icons.length;
+              return Stack(children: [
               Positioned.fill(child: CustomPaint(painter: StarPatternPainter(gold.withOpacity(0.10)))),
               Positioned(
                 top: 0,
@@ -420,8 +423,25 @@ class _HomeShellState extends State<HomeShell> {
                   decoration: BoxDecoration(gradient: LinearGradient(colors: [Colors.transparent, goldLight.withOpacity(0.9), Colors.transparent])),
                 ),
               ),
+              // كبسولة ذهبية تنزلق إلى الأيقونة المختارة
+              AnimatedPositionedDirectional(
+                duration: Duration(milliseconds: 420),
+                curve: Curves.easeOutBack,
+                start: selected * itemW + (itemW - 72) / 2,
+                top: 13.9,
+                width: 72,
+                height: 44,
+                child: Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Color(0xFFF7E8B5), gold]),
+                    borderRadius: BorderRadius.circular(22),
+                    boxShadow: [BoxShadow(color: gold.withOpacity(0.55), blurRadius: 16, offset: Offset(0, 3))],
+                  ),
+                ),
+              ),
               Row(children: [for (int i = 0; i < _icons.length; i++) Expanded(child: _navItem(i))]),
-            ]),
+              ]);
+            }),
           ),
         ),
       ),
@@ -437,22 +457,19 @@ class _HomeShellState extends State<HomeShell> {
         setState(() => selected = i);
       },
       child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-        AnimatedContainer(
-          duration: Duration(milliseconds: 320),
-          curve: Curves.easeOutCubic,
-          width: sel ? 72 : 48,
+        SizedBox(
+          width: 72,
           height: 44,
-          decoration: BoxDecoration(
-            gradient: sel ? LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Color(0xFFF7E8B5), gold]) : null,
-            borderRadius: BorderRadius.circular(22),
-            boxShadow: sel ? [BoxShadow(color: gold.withOpacity(0.55), blurRadius: 16, offset: Offset(0, 3))] : null,
-          ),
           child: Center(
             child: AnimatedScale(
-              scale: sel ? 1.1 : 1.0,
-              duration: Duration(milliseconds: 320),
+              scale: sel ? 1.18 : 1.0,
+              duration: Duration(milliseconds: 380),
               curve: Curves.easeOutBack,
-              child: Icon(sel ? _iconsSel[i] : _icons[i], size: 31, color: sel ? deepGreen : Colors.white.withOpacity(0.8)),
+              child: TweenAnimationBuilder<Color?>(
+                tween: ColorTween(end: sel ? deepGreen : Colors.white.withOpacity(0.8)),
+                duration: Duration(milliseconds: 300),
+                builder: (_, col, __) => Icon(sel ? _iconsSel[i] : _icons[i], size: 31, color: col),
+              ),
             ),
           ),
         ),
@@ -477,7 +494,7 @@ class HomePage extends StatelessWidget {
       value: SystemUiOverlayStyle.light,
       child: Scaffold(
         body: Stack(children: [
-        Positioned.fill(child: CustomPaint(painter: StarPatternPainter(green.withOpacity(isDark(context) ? 0.07 : 0.05)))),
+        Positioned.fill(child: _LivePattern(color: green.withOpacity(isDark(context) ? 0.07 : 0.05))),
         ListView(padding: EdgeInsets.only(bottom: 24), children: [
           _HomeHero(),
           ValueListenableBuilder<int>(
@@ -487,7 +504,7 @@ class HomePage extends StatelessWidget {
                     padding: EdgeInsets.fromLTRB(16, 18, 16, 0),
                     child: _ContinueBanner(
                       page: v,
-                      onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => PdfReaderPage(initialPage: v))),
+                      onTap: () => Navigator.push(context, SoftRoute(builder: (_) => PdfReaderPage(initialPage: v))),
                     ),
                   )
                 : SizedBox.shrink(),
@@ -586,6 +603,7 @@ class _HomeHeroState extends State<_HomeHero> {
         borderRadius: radius,
         child: Stack(children: [
           Positioned.fill(child: CustomPaint(painter: StarPatternPainter(gold.withOpacity(0.13)))),
+          Positioned.fill(child: IgnorePointer(child: _HeroSweep())),
           PositionedDirectional(
             end: -70,
             top: -70,
@@ -697,20 +715,38 @@ class _SectionTitle extends StatelessWidget {
   const _SectionTitle(this.text);
   @override
   Widget build(BuildContext context) {
-    Widget line() => Expanded(child: Container(height: 1.2, color: gold.withOpacity(0.5)));
-    Widget diamond() => Transform.rotate(angle: 0.785398, child: Container(width: 7, height: 7, color: gold));
+    Widget line(bool toEnd) => Expanded(
+          child: Container(
+            height: 1.4,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: toEnd ? Alignment.centerRight : Alignment.centerLeft,
+                end: toEnd ? Alignment.centerLeft : Alignment.centerRight,
+                colors: [gold.withOpacity(0.85), gold.withOpacity(0.0)],
+              ),
+            ),
+          ),
+        );
+    Widget diamond(double sz, bool filled) => Transform.rotate(
+          angle: 0.785398,
+          child: Container(width: sz, height: sz, decoration: BoxDecoration(color: filled ? gold : null, border: filled ? null : Border.all(color: gold, width: 1.3))),
+        );
     return Padding(
       padding: EdgeInsets.fromLTRB(22, 24, 22, 14),
       child: Row(children: [
-        line(),
-        SizedBox(width: 10),
-        diamond(),
+        line(false),
+        SizedBox(width: 8),
+        diamond(5, true),
+        SizedBox(width: 5),
+        diamond(9, false),
         SizedBox(width: 9),
-        Text(text, style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800, color: accent(context))),
+        Text(text, style: TextStyle(fontFamily: 'Rsail', fontSize: 25, height: 1.5, fontWeight: FontWeight.w700, color: accent(context))),
         SizedBox(width: 9),
-        diamond(),
-        SizedBox(width: 10),
-        line(),
+        diamond(9, false),
+        SizedBox(width: 5),
+        diamond(5, true),
+        SizedBox(width: 8),
+        line(true),
       ]),
     );
   }
@@ -846,7 +882,8 @@ class _QuickTileState extends State<_QuickTile> {
 // زخرفة نجوم ثمانية متكررة خفيفة لخلفية الشاشة الرئيسية
 class StarPatternPainter extends CustomPainter {
   final Color color;
-  StarPatternPainter(this.color);
+  final double drift;
+  StarPatternPainter(this.color, [this.drift = 0]);
 
   void _star(Canvas c, Offset o, double r, Paint p) {
     for (final rot in [0.0, math.pi / 4]) {
@@ -874,9 +911,9 @@ class StarPatternPainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1;
     int row = 0;
-    for (double y = 0; y < size.height + cell; y += cell / 2) {
+    for (double y = -cell + drift; y < size.height + cell; y += cell / 2) {
       final shift = row.isEven ? 0.0 : cell / 2;
-      for (double x = -cell; x < size.width + cell; x += cell) {
+      for (double x = -cell + drift; x < size.width + cell; x += cell) {
         _star(c, Offset(x + shift, y), cell * 0.30, paint);
       }
       row++;
@@ -884,7 +921,7 @@ class StarPatternPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant StarPatternPainter old) => old.color != color;
+  bool shouldRepaint(covariant StarPatternPainter old) => old.color != color || old.drift != drift;
 }
 
 class AwradPage extends StatelessWidget {
@@ -892,12 +929,12 @@ class AwradPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(title: Text('الأوراد')),
-        body: ListView(padding: EdgeInsets.all(16), children: [
+        body: ListView(padding: EdgeInsets.all(16), children: _stagger([
           FancyCard(
             title: 'كتاب أوراد الطريقة',
             subtitle: 'الكتاب الكامل مع فهرس العناوين',
             icon: Icons.menu_book_rounded,
-            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => BookIndexPage())),
+            onTap: () => Navigator.push(context, SoftRoute(builder: (_) => BookIndexPage())),
           ),
           FancyCard(
             title: 'المسبعات',
@@ -929,7 +966,7 @@ class AwradPage extends StatelessWidget {
             icon: Icons.waves,
             onTap: () => openTextString(context, 'حزب البحر', hizbAlBahrText),
           ),
-        ]),
+        ])),
       );
 }
 
@@ -970,13 +1007,13 @@ class SectionCard extends StatelessWidget {
 }
 
 void openTextString(BuildContext context, String title, String text) {
-  Navigator.push(context, MaterialPageRoute(builder: (_) => TextReaderPage(title: title, text: text, poem: false)));
+  Navigator.push(context, SoftRoute(builder: (_) => TextReaderPage(title: title, text: text, poem: false)));
 }
 
 Future<void> openText(BuildContext context, String title, String asset, bool poem) async {
   final text = await rootBundle.loadString(asset);
   if (!context.mounted) return;
-  Navigator.push(context, MaterialPageRoute(builder: (_) => TextReaderPage(title: title, text: text, poem: poem)));
+  Navigator.push(context, SoftRoute(builder: (_) => TextReaderPage(title: title, text: text, poem: poem)));
 }
 
 class TextReaderPage extends StatefulWidget {
@@ -1273,9 +1310,9 @@ class _TextReaderPageState extends State<TextReaderPage> {
   }
 
   @override
-  Widget build(BuildContext context) => ValueListenableBuilder<FontCfg>(
-        valueListenable: fontCfg,
-        builder: (context, cfg, _) => _page(context, cfg),
+  Widget build(BuildContext context) => AnimatedBuilder(
+        animation: Listenable.merge([fontCfg, paperMode]),
+        builder: (context, _) => _page(context, fontCfg.value),
       );
 
   Widget _page(BuildContext context, FontCfg cfg) {
@@ -1283,13 +1320,14 @@ class _TextReaderPageState extends State<TextReaderPage> {
     final lines = t.split('\n').map((l) => l.trim()).where((l) => l.isNotEmpty).toList();
     final heading = lines.isNotEmpty ? lines.first : widget.title;
     final body = lines.length > 1 ? lines.sublist(1) : <String>[];
-    final dark = isDark(context);
+    final dark = isDark(context) || paperMode.value == 3;
     final count = widget.poem ? (body.length + 1) ~/ 2 : body.length;
     final hasMark = bm >= 0 && bm < count;
 
     final appBar = AppBar(
       title: Text(widget.title),
       actions: [
+        IconButton(tooltip: 'لون الورقة', icon: Icon(Icons.contrast), onPressed: () => showPaperSheet(context)),
         IconButton(tooltip: 'ابدأ من جديد', icon: Icon(Icons.replay), onPressed: _newRound),
         IconButton(
           tooltip: 'تمرير تلقائي',
@@ -1489,7 +1527,7 @@ class _BookIndexPageState extends State<BookIndexPage> {
                       padding: EdgeInsets.all(12),
                       child: FilledButton.icon(
                         style: FilledButton.styleFrom(backgroundColor: green),
-                        onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => PdfReaderPage(initialPage: 1))),
+                        onPressed: () => Navigator.push(context, SoftRoute(builder: (_) => PdfReaderPage(initialPage: 1))),
                         icon: Icon(Icons.menu_book),
                         label: Text('فتح الكتاب من البداية'),
                       ),
@@ -1509,7 +1547,7 @@ class _BookIndexPageState extends State<BookIndexPage> {
                       icon: Icon(isFav ? Icons.star_rounded : Icons.star_border_rounded, color: gold, size: 30),
                       onPressed: () => toggleFavorite(e),
                     ),
-                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => PdfReaderPage(initialPage: e.page))),
+                    onTap: () => Navigator.push(context, SoftRoute(builder: (_) => PdfReaderPage(initialPage: e.page))),
                   );
                 },
               ),
@@ -1633,7 +1671,7 @@ class _PdfReaderPageState extends State<PdfReaderPage> {
           IconButton(
             tooltip: 'الفهرس',
             icon: Icon(Icons.list_alt),
-            onPressed: () => Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => BookIndexPage())),
+            onPressed: () => Navigator.pushReplacement(context, SoftRoute(builder: (_) => BookIndexPage())),
           ),
         ],
       ),
@@ -1751,7 +1789,7 @@ class FavoritesPage extends StatelessWidget {
                   subtitle: Text('صفحة $page'),
                   leading: Icon(Icons.star_rounded, color: gold),
                   trailing: IconButton(icon: Icon(Icons.delete_outline), onPressed: () => toggleFavorite(IndexEntry(title, page))),
-                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => PdfReaderPage(initialPage: page))),
+                  onTap: () => Navigator.push(context, SoftRoute(builder: (_) => PdfReaderPage(initialPage: page))),
                 );
               },
             );
@@ -1780,28 +1818,28 @@ class MorePage extends StatelessWidget {
             title: Text('ألوان التطبيق'),
             subtitle: Text('اختر لون التطبيق من بين عدة ألوان'),
             trailing: Icon(Icons.chevron_left, color: green),
-            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ThemeColorsPage())),
+            onTap: () => Navigator.push(context, SoftRoute(builder: (_) => ThemeColorsPage())),
           ),
           ListTile(
             leading: Icon(Icons.text_fields, color: green),
             title: Text('إعدادات الخط'),
             subtitle: Text('الحجم والنوع واللون والتباعد والتشكيل'),
             trailing: Icon(Icons.chevron_left, color: green),
-            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => FontSettingsPage())),
+            onTap: () => Navigator.push(context, SoftRoute(builder: (_) => FontSettingsPage())),
           ),
           ListTile(
             leading: Icon(Icons.access_time, color: green),
             title: Text('تعديل الساعة والتاريخ'),
             subtitle: Text('ضبط الوقت والتاريخ الميلادي والهجري يدوياً'),
             trailing: Icon(Icons.chevron_left, color: green),
-            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ClockSettingsPage())),
+            onTap: () => Navigator.push(context, SoftRoute(builder: (_) => ClockSettingsPage())),
           ),
           ListTile(
             leading: Icon(Icons.mosque, color: green),
             title: Text('تعديل مواقيت الصلاة'),
             subtitle: Text('اختيار المدينة وضبط كل وقت بالدقائق يدوياً'),
             trailing: Icon(Icons.chevron_left, color: green),
-            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => PrayerSettingsPage())),
+            onTap: () => Navigator.push(context, SoftRoute(builder: (_) => PrayerSettingsPage())),
           ),
           ListTile(leading: Icon(Icons.info_outline, color: green), title: Text('عن التطبيق'), subtitle: Text('الطريقة الخلوتية البكرية')),
           ListTile(leading: Icon(Icons.offline_bolt, color: green), title: Text('يعمل دون إنترنت'), subtitle: Text('الكتاب والفهرس والنصوص محفوظة داخل التطبيق.')),
@@ -1839,7 +1877,7 @@ class FontSettingsPage extends StatelessWidget {
               Container(
                 padding: EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: isDark(context) ? darkTint(0.14) : Colors.white,
+                  color: paperColor(context),
                   borderRadius: BorderRadius.circular(16),
                   border: Border.all(color: Color(0x55C6A75E)),
                 ),
@@ -1901,6 +1939,8 @@ class FontSettingsPage extends StatelessWidget {
                       : OutlinedButton.icon(onPressed: () => saveFont(c.copyWith(tashkeel: true)), icon: Icon(Icons.text_format), label: Text('إضافة التشكيل')),
                 ),
               ]),
+              _section('لون الورقة'),
+              PaperPicker(),
               SizedBox(height: 20),
               TextButton.icon(onPressed: () => saveFont(FontCfg()), icon: Icon(Icons.restart_alt), label: Text('استرجاع الإعدادات الأصلية')),
               SizedBox(height: 6),
@@ -1992,26 +2032,26 @@ class MasbahaPage extends StatelessWidget {
               title: w.title,
               subtitle: 'اضغط لعرض المهام وعدّاد المسبحة',
               icon: w.icon,
-              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => WirdPage(def: w))),
+              onTap: () => Navigator.push(context, SoftRoute(builder: (_) => WirdPage(def: w))),
             ),
           ],
           FancyCard(
             title: namesDef.title,
             subtitle: 'لا إله إلا الله • الله • هو • حق • حي • قيوم • قهار',
             icon: namesDef.icon,
-            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => WirdPage(def: namesDef))),
+            onTap: () => Navigator.push(context, SoftRoute(builder: (_) => WirdPage(def: namesDef))),
           ),
           FancyCard(
             title: 'الإحصائيات',
             subtitle: 'الأيام المتتالية وعدد الأذكار',
             icon: Icons.bar_chart_rounded,
-            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => StatsPage())),
+            onTap: () => Navigator.push(context, SoftRoute(builder: (_) => StatsPage())),
           ),
           FancyCard(
             title: 'سجل الإنجازات',
             subtitle: 'الأذكار التي أكملتها',
             icon: Icons.history,
-            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => LogPage())),
+            onTap: () => Navigator.push(context, SoftRoute(builder: (_) => LogPage())),
           ),
         ]),
       );
@@ -2114,7 +2154,7 @@ class _WirdPageState extends State<WirdPage> {
             IconButton(
               tooltip: 'سجل الإنجازات',
               icon: Icon(Icons.history),
-              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => LogPage())),
+              onPressed: () => Navigator.push(context, SoftRoute(builder: (_) => LogPage())),
             ),
           ],
         ),
@@ -2156,7 +2196,7 @@ class _WirdPageState extends State<WirdPage> {
         child: InkWell(
           borderRadius: BorderRadius.circular(22),
           onTap: () async {
-            await Navigator.push(context, MaterialPageRoute(builder: (_) => CounterPage(task: t, wird: widget.def.title)));
+            await Navigator.push(context, SoftRoute(builder: (_) => CounterPage(task: t, wird: widget.def.title)));
             load();
           },
           child: Padding(
@@ -2332,7 +2372,7 @@ class _CounterPageState extends State<CounterPage> {
               } else if (v == 'reset') {
                 _reset();
               } else if (v == 'log') {
-                Navigator.push(context, MaterialPageRoute(builder: (_) => LogPage()));
+                Navigator.push(context, SoftRoute(builder: (_) => LogPage()));
               }
             },
             itemBuilder: (ctx) => [
@@ -3603,7 +3643,273 @@ Future<void> addReadLog(String title, int seconds) async {
 
 
 // ===================== تصميم صفحات القراءة =====================
-Color paperColor(BuildContext c) => isDark(c) ? Color.alphaBlend(Colors.white.withOpacity(0.045), darkTint(0.07)) : Color(0xFFFFFCF4);
+// ===================== لمسات جمالية عامة =====================
+// انتقال ناعم بين الشاشات: تلاشي مع انزلاق خفيف للأعلى
+class SoftRoute<T> extends PageRouteBuilder<T> {
+  SoftRoute({required WidgetBuilder builder, super.settings})
+      : super(
+          pageBuilder: (c, a, s) => builder(c),
+          transitionDuration: Duration(milliseconds: 380),
+          reverseTransitionDuration: Duration(milliseconds: 280),
+          transitionsBuilder: (c, a, s, child) {
+            final curved = CurvedAnimation(parent: a, curve: Curves.easeOutCubic, reverseCurve: Curves.easeInCubic);
+            return FadeTransition(
+              opacity: curved,
+              child: SlideTransition(position: Tween<Offset>(begin: Offset(0, 0.045), end: Offset.zero).animate(curved), child: child),
+            );
+          },
+        );
+}
+
+// ظهور متتابع للبطاقات: كل واحدة تتأخر قليلاً عن التي قبلها
+class _Appear extends StatefulWidget {
+  final int index;
+  final Widget child;
+  const _Appear({required this.index, required this.child});
+  @override
+  State<_Appear> createState() => _AppearState();
+}
+
+class _AppearState extends State<_Appear> with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(vsync: this, duration: Duration(milliseconds: 520));
+  late final Animation<double> _a = CurvedAnimation(parent: _c, curve: Curves.easeOutCubic);
+
+  @override
+  void initState() {
+    super.initState();
+    Future.delayed(Duration(milliseconds: 60 + widget.index * 90), () {
+      if (mounted) _c.forward();
+    });
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => FadeTransition(
+        opacity: _a,
+        child: SlideTransition(position: Tween<Offset>(begin: Offset(0, 0.14), end: Offset.zero).animate(_a), child: widget.child),
+      );
+}
+
+List<Widget> _stagger(List<Widget> ws) => [for (int i = 0; i < ws.length; i++) _Appear(index: i, child: ws[i])];
+
+// خلفية النقش الإسلامي تتحرك ببطء شديد
+class _LivePattern extends StatefulWidget {
+  final Color color;
+  const _LivePattern({required this.color});
+  @override
+  State<_LivePattern> createState() => _LivePatternState();
+}
+
+class _LivePatternState extends State<_LivePattern> with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(vsync: this, duration: Duration(seconds: 90))..repeat();
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => RepaintBoundary(
+        child: AnimatedBuilder(animation: _c, builder: (_, __) => CustomPaint(painter: StarPatternPainter(widget.color, _c.value * 56.0))),
+      );
+}
+
+// لمعة ذهبية تعبر هيدر الشاشة الرئيسية كل بضع ثوانٍ
+class _SweepPainter extends CustomPainter {
+  final double t;
+  _SweepPainter(this.t);
+  @override
+  void paint(Canvas c, Size s) {
+    if (t > 0.42) return;
+    final k = Curves.easeInOut.transform((t / 0.42).clamp(0.0, 1.0).toDouble());
+    final band = s.width * 0.26;
+    final lean = s.height * 0.35;
+    final x = -band - lean + (s.width + 2 * band + lean) * k;
+    final path = Path()
+      ..moveTo(x, 0)
+      ..lineTo(x + band, 0)
+      ..lineTo(x + band - lean, s.height)
+      ..lineTo(x - lean, s.height)
+      ..close();
+    final rect = Rect.fromLTWH(x - lean, 0, band + lean, s.height);
+    c.drawPath(path, Paint()..shader = LinearGradient(colors: [Colors.transparent, Color(0xFFF2DE9F).withOpacity(0.22), Colors.transparent]).createShader(rect));
+  }
+
+  @override
+  bool shouldRepaint(covariant _SweepPainter old) => old.t != t;
+}
+
+class _HeroSweep extends StatefulWidget {
+  const _HeroSweep();
+  @override
+  State<_HeroSweep> createState() => _HeroSweepState();
+}
+
+class _HeroSweepState extends State<_HeroSweep> with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(vsync: this, duration: Duration(seconds: 9))..repeat();
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => RepaintBoundary(child: AnimatedBuilder(animation: _c, builder: (_, __) => CustomPaint(painter: _SweepPainter(_c.value))));
+}
+
+// نقطة لامعة بذيل تسير على قوس الشمس في كارت المواقيت
+class _ArcSparklePainter extends CustomPainter {
+  final double t;
+  _ArcSparklePainter(this.t);
+  @override
+  void paint(Canvas c, Size s) {
+    const topPad = 16.0, pad = 14.0;
+    final rx = (s.width - 2 * pad) / 2;
+    final base = s.height - 6;
+    final ry = base - topPad;
+    final rect = Rect.fromLTWH(pad, base - ry, 2 * rx, 2 * ry);
+    final m = (Path()..addArc(rect, math.pi, math.pi)).computeMetrics().first;
+    final d = m.length * t;
+    final tail = m.extractPath(math.max(0.0, d - 70), d);
+    c.drawPath(tail, Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 4
+      ..strokeCap = StrokeCap.round
+      ..color = Color(0xFFF2DE9F).withOpacity(0.35)
+      ..maskFilter = MaskFilter.blur(BlurStyle.normal, 3));
+    final tg = m.getTangentForOffset(d);
+    if (tg != null) {
+      c.drawCircle(tg.position, 5, Paint()
+        ..color = Color(0xFFF2DE9F).withOpacity(0.7)
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, 4));
+      c.drawCircle(tg.position, 2.2, Paint()..color = Colors.white);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _ArcSparklePainter old) => old.t != t;
+}
+
+class _ArcSparkle extends StatefulWidget {
+  const _ArcSparkle();
+  @override
+  State<_ArcSparkle> createState() => _ArcSparkleState();
+}
+
+class _ArcSparkleState extends State<_ArcSparkle> with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(vsync: this, duration: Duration(seconds: 5))..repeat();
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => RepaintBoundary(child: AnimatedBuilder(animation: _c, builder: (_, __) => CustomPaint(painter: _ArcSparklePainter(_c.value))));
+}
+
+// لون خلفية كارت المواقيت حسب وقت اليوم (ممزوج بقليل من لون التطبيق)
+List<Color> _skyColors(List<DateTime> t, DateTime now, bool dark) {
+  List<Color> c;
+  if (now.isBefore(t[0]) || !now.isBefore(t[5])) {
+    c = [Color(0xFF0B1030), Color(0xFF1B2A5A)]; // ليل
+  } else if (now.isBefore(t[1])) {
+    c = [Color(0xFF2A2F6B), Color(0xFFA24B78)]; // فجر
+  } else if (now.isBefore(t[2])) {
+    c = [Color(0xFF1F6F8B), Color(0xFF3B9AA3)]; // ضحى
+  } else if (now.isBefore(t[3])) {
+    c = [Color(0xFF1B5E9C), Color(0xFF2A86B8)]; // ظهيرة
+  } else if (now.isBefore(t[4])) {
+    c = [Color(0xFF8A4F14), Color(0xFFB87424)]; // عصر
+  } else {
+    c = [Color(0xFF3C1F5E), Color(0xFFB5442F)]; // غروب
+  }
+  return [
+    for (final x in c) Color.alphaBlend(Colors.black.withOpacity(dark ? 0.25 : 0.0), Color.lerp(x, green, 0.22)!),
+  ];
+}
+
+// ===== لون الورقة في صفحات القراءة =====
+const List<String> paperLabels = ['تلقائي', 'أبيض', 'كريمي', 'ليلي مريح'];
+final ValueNotifier<int> paperMode = ValueNotifier<int>(0);
+
+Future<void> setPaperMode(int i) async {
+  paperMode.value = i;
+  final p = await SharedPreferences.getInstance();
+  await p.setInt('paper_mode', i);
+}
+
+Color paperColor(BuildContext c) {
+  switch (paperMode.value) {
+    case 1:
+      return Color(0xFFFFFFFF);
+    case 2:
+      return Color(0xFFF3E7CB);
+    case 3:
+      return Color(0xFF1F2420);
+    default:
+      return isDark(c) ? Color.alphaBlend(Colors.white.withOpacity(0.045), darkTint(0.07)) : Color(0xFFFFFCF4);
+  }
+}
+
+Color readInk(BuildContext c) => paperMode.value == 3 ? Color(0xFFE4DFCE) : (paperMode.value == 0 ? ink(c) : inkLight);
+Color readAccent(BuildContext c) => paperMode.value == 3 ? Color(0xFFD8C27E) : (paperMode.value == 0 ? accent(c) : deepGreen);
+
+class PaperPicker extends StatelessWidget {
+  const PaperPicker({super.key});
+  @override
+  Widget build(BuildContext context) => ValueListenableBuilder<int>(
+        valueListenable: paperMode,
+        builder: (context, sel, _) => Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
+          for (int i = 0; i < paperLabels.length; i++)
+            GestureDetector(
+              onTap: () => setPaperMode(i),
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                AnimatedContainer(
+                  duration: Duration(milliseconds: 200),
+                  width: 62,
+                  height: 62,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: i == 0 ? (isDark(context) ? Color(0xFF2B312D) : Color(0xFFFFFCF4)) : [Colors.white, Color(0xFFF3E7CB), Color(0xFF1F2420)][i - 1],
+                    border: Border.all(color: sel == i ? gold : Colors.grey.withOpacity(0.5), width: sel == i ? 3.2 : 1.2),
+                    boxShadow: sel == i ? [BoxShadow(color: gold.withOpacity(0.45), blurRadius: 10)] : null,
+                  ),
+                  child: Center(
+                    child: i == 0
+                        ? Icon(Icons.auto_awesome, size: 24, color: gold)
+                        : Text('أ', style: TextStyle(fontSize: 26, fontWeight: FontWeight.w800, color: i == 3 ? Color(0xFFE4DFCE) : Color(0xFF2A2A2A))),
+                  ),
+                ),
+                SizedBox(height: 6),
+                Text(paperLabels[i], style: TextStyle(fontSize: 13, fontWeight: sel == i ? FontWeight.w800 : FontWeight.w500)),
+              ]),
+            ),
+        ]),
+      );
+}
+
+void showPaperSheet(BuildContext context) {
+  showModalBottomSheet(
+    context: context,
+    builder: (ctx) => SafeArea(
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(16, 18, 16, 22),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Text('لون الورقة', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800)),
+          SizedBox(height: 16),
+          PaperPicker(),
+        ]),
+      ),
+    ),
+  );
+}
+
 
 // إطار مزدوج ذهبي بزخارف في الأركان، كأنه صفحة مصحف
 class PageFrame extends StatelessWidget {
@@ -4190,7 +4496,7 @@ CountSplit? splitCount(String paragraph) {
 
 int? countTarget(String paragraph) => splitCount(paragraph)?.target;
 
-// ===== زخارف صناديق العدّ (تصميم جديد: مشربية خاتم سليماني + خرز مسبحة + إطار أرابيسك) =====
+// ===== صناديق العدّ: داخل سادة للقراءة، والزخرفة والحركة كلها على الإطار =====
 // نجمة ثمانية (رُبع الحزب): مربعان متداخلان
 Path _starPath(Offset c, double R, [double inner = 0.765]) {
   final path = Path();
@@ -4208,7 +4514,6 @@ Path _starPath(Offset c, double R, [double inner = 0.765]) {
   return path;
 }
 
-// معيّن صغير
 Path _diamondPath(Offset o, double r) => Path()
   ..moveTo(o.dx, o.dy - r)
   ..lineTo(o.dx + r, o.dy)
@@ -4216,249 +4521,177 @@ Path _diamondPath(Offset o, double r) => Path()
   ..lineTo(o.dx - r, o.dy)
   ..close();
 
-// ميدالية مزخرفة: حلقة خرز بعدد المطلوب (كل ضغطة تُضيء حبة) + نجمة تمتلئ بالنور
-class _StarMedallionPainter extends CustomPainter {
-  final double progress;
+// مسار الإطار: يبدأ من منتصف الحافة العليا ويدور مع عقارب الساعة
+Path _framePath(Rect rc, double r) {
+  final p = Path();
+  p.moveTo(rc.center.dx, rc.top);
+  p.lineTo(rc.right - r, rc.top);
+  p.arcToPoint(Offset(rc.right, rc.top + r), radius: Radius.circular(r));
+  p.lineTo(rc.right, rc.bottom - r);
+  p.arcToPoint(Offset(rc.right - r, rc.bottom), radius: Radius.circular(r));
+  p.lineTo(rc.left + r, rc.bottom);
+  p.arcToPoint(Offset(rc.left, rc.bottom - r), radius: Radius.circular(r));
+  p.lineTo(rc.left, rc.top + r);
+  p.arcToPoint(Offset(rc.left + r, rc.top), radius: Radius.circular(r));
+  p.close();
+  return p;
+}
+
+const double _bandW = 11.0; // سُمك شريط الإطار
+
+// شريط الإطار: مسار ذهبي مرصّع بالمعيّنات، يمتلئ بلون التقدّم حول الصندوق مع كل ضغطة
+class _BandPainter extends CustomPainter {
+  final double progress, glow;
   final Color fill, orn;
   final bool done;
-  final int count, target;
-  _StarMedallionPainter(this.progress, this.fill, this.orn, this.done, this.count, this.target);
+  _BandPainter(this.progress, this.glow, this.fill, this.orn, this.done);
+
+  @override
+  void paint(Canvas c, Size s) {
+    final rc = Rect.fromLTWH(1 + _bandW / 2, 1 + _bandW / 2, s.width - 2 - _bandW, s.height - 2 - _bandW);
+    final path = _framePath(rc, 20);
+    final m = path.computeMetrics().first;
+    final len = m.length;
+    final track = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = _bandW;
+
+    // مسار الشريط (ذهبي خافت)
+    c.drawPath(path, track..color = orn.withOpacity(done ? 0.0 : 0.26));
+
+    // التقدّم (أو ذهب متوهّج عند الإتمام)
+    final pr = done ? 1.0 : progress.clamp(0.0, 1.0).toDouble();
+    if (pr > 0) {
+      final seg = m.extractPath(0, len * pr);
+      final col = done ? orn : Color.lerp(fill, Colors.white, 0.18 * glow)!;
+      c.drawPath(seg, Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = _bandW + 4
+        ..color = col.withOpacity(done ? 0.55 : 0.40)
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, 6));
+      c.drawPath(seg, Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = _bandW
+        ..strokeCap = StrokeCap.butt
+        ..color = col);
+    }
+
+    // معيّنات مرصّعة على طول الشريط (المضيئة بيضاء)
+    for (double d = 8; d < len - 4; d += 15) {
+      final t = m.getTangentForOffset(d);
+      if (t == null) continue;
+      final lit = done || d / len <= pr;
+      c.drawPath(_diamondPath(t.position, 2.3), Paint()..color = lit ? Colors.white.withOpacity(0.92) : orn.withOpacity(0.75));
+    }
+
+    // خطّا حافة الشريط (خارجي وداخلي)
+    final line = Paint()
+      ..style = PaintingStyle.stroke
+      ..color = orn;
+    c.drawRRect(RRect.fromRectAndRadius(Rect.fromLTWH(0.8, 0.8, s.width - 1.6, s.height - 1.6), Radius.circular(25)), line..strokeWidth = 1.5);
+    c.drawRRect(RRect.fromRectAndRadius(Rect.fromLTWH(1 + _bandW, 1 + _bandW, s.width - 2 - 2 * _bandW, s.height - 2 - 2 * _bandW), Radius.circular(15)), line
+      ..strokeWidth = 1.0
+      ..color = orn.withOpacity(0.9));
+
+    // نجمة ذهبية في كل ركن
+    final dark = Color.lerp(orn, Colors.black, 0.45)!;
+    for (final o in [Offset(13, 13), Offset(s.width - 13, 13), Offset(13, s.height - 13), Offset(s.width - 13, s.height - 13)]) {
+      final st = _starPath(o, 10);
+      c.drawPath(st, Paint()..color = Color.lerp(orn, Colors.white, 0.25)!);
+      c.drawPath(st, Paint()
+        ..color = dark
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.0);
+      c.drawCircle(o, 2.6, Paint()..color = dark);
+      c.drawCircle(o, 1.3, Paint()..color = Colors.white);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _BandPainter old) => old.progress != progress || old.glow != glow || old.fill != fill || old.orn != orn || old.done != done;
+}
+
+// لمعان يجري حول الإطار باستمرار (لمعتان متقابلتان)
+class _ShimmerPainter extends CustomPainter {
+  final double t;
+  final bool done;
+  _ShimmerPainter(this.t, this.done);
+
+  void _seg(Canvas c, dynamic m, double len, double center, double half, Paint p) {
+    final a = center - half, b = center + half;
+    if (a < 0) {
+      c.drawPath(m.extractPath(0, b), p);
+      c.drawPath(m.extractPath(len + a, len), p);
+    } else if (b > len) {
+      c.drawPath(m.extractPath(a, len), p);
+      c.drawPath(m.extractPath(0, b - len), p);
+    } else {
+      c.drawPath(m.extractPath(a, b), p);
+    }
+  }
+
+  @override
+  void paint(Canvas c, Size s) {
+    final rc = Rect.fromLTWH(1 + _bandW / 2, 1 + _bandW / 2, s.width - 2 - _bandW, s.height - 2 - _bandW);
+    final m = _framePath(rc, 20).computeMetrics().first;
+    final len = m.length;
+    final k = done ? 1.6 : 1.0;
+    for (final off in [0.0, 0.5]) {
+      final ctr = ((t + off) % 1.0) * len;
+      Paint p(double w, double a) => Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round
+        ..strokeWidth = w
+        ..color = Colors.white.withOpacity(math.min(1.0, a * k));
+      _seg(c, m, len, ctr, 46, p(_bandW, 0.10));
+      _seg(c, m, len, ctr, 26, p(_bandW - 3, 0.20));
+      _seg(c, m, len, ctr, 11, p(_bandW - 6, 0.55));
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _ShimmerPainter old) => old.t != t || old.done != done;
+}
+
+// عدّاد دائري بسيط: حلقة تتقدّم حول الرقم
+class _CounterRingPainter extends CustomPainter {
+  final double progress;
+  final Color ring, orn;
+  final bool done;
+  _CounterRingPainter(this.progress, this.ring, this.orn, this.done);
 
   @override
   void paint(Canvas c, Size s) {
     final ctr = s.center(Offset.zero);
-    final outer = s.width / 2 - 1;
-    final ringR = outer - 5.5; // نصف قطر حلقة الخرز
-    final R = ringR - 9; // نصف قطر النجمة
-
-    // وهج خارجي
-    c.drawCircle(ctr, outer, Paint()
-      ..color = fill.withOpacity(done ? 0.55 : 0.28)
-      ..maskFilter = MaskFilter.blur(BlurStyle.normal, done ? 9 : 6));
-
-    // قرص داكن + حلقتان ذهبيتان
-    c.drawCircle(ctr, outer - 1, Paint()..color = Color.lerp(fill, Colors.black, 0.70)!);
-    c.drawCircle(ctr, outer - 1, Paint()
-      ..shader = SweepGradient(colors: [orn, Colors.white.withOpacity(0.9), orn, Color.lerp(orn, Colors.black, 0.35)!, orn]).createShader(Rect.fromCircle(center: ctr, radius: outer))
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.0);
-    c.drawCircle(ctr, ringR - 5.2, Paint()
-      ..color = orn.withOpacity(0.55)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 0.8);
-
-    // حلقة الخرز: عدد الحبات = العدد المطلوب، وتُضاء بقدر ما عُدّ
-    final n = target.clamp(1, 60).toInt();
-    final br = n <= 7 ? 3.6 : (n <= 21 ? 2.5 : 1.8);
-    for (int i = 0; i < n; i++) {
-      final a = -math.pi / 2 + i * 2 * math.pi / n;
-      final o = Offset(ctr.dx + ringR * math.cos(a), ctr.dy + ringR * math.sin(a));
-      final lit = i < count || done;
-      if (lit) {
-        c.drawCircle(o, br + 1.6, Paint()
-          ..color = orn.withOpacity(0.55)
-          ..maskFilter = MaskFilter.blur(BlurStyle.normal, 2.5));
-        c.drawCircle(o, br, Paint()
-          ..shader = RadialGradient(center: Alignment(-0.4, -0.4), colors: [Colors.white, orn, Color.lerp(orn, Colors.black, 0.3)!]).createShader(Rect.fromCircle(center: o, radius: br)));
-      } else {
-        c.drawCircle(o, br, Paint()..color = Colors.black.withOpacity(0.45));
-        c.drawCircle(o, br, Paint()
-          ..color = orn.withOpacity(0.50)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 0.9);
-      }
+    final R = s.width / 2 - 5;
+    if (done) {
+      c.drawCircle(ctr, R + 2, Paint()
+        ..color = orn.withOpacity(0.5)
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, 7));
     }
-
-    // النجمة وفيها تعبئة نورانية صاعدة
-    final star = _starPath(ctr, R);
-    c.drawPath(star, Paint()..color = Color.lerp(fill, Colors.black, 0.45)!);
-    c.save();
-    c.clipPath(star);
-    final pr = progress.clamp(0.0, 1.0).toDouble();
-    final top = ctr.dy + R - 2 * R * pr;
-    final rect = Rect.fromLTRB(0, top, s.width, s.height);
-    c.drawRect(rect, Paint()..shader = LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Color.lerp(fill, Colors.white, 0.40)!, fill]).createShader(rect));
-    if (pr > 0 && pr < 1) {
-      c.drawLine(Offset(0, top), Offset(s.width, top), Paint()
-        ..color = Colors.white.withOpacity(0.65)
-        ..strokeWidth = 1.3);
-    }
-    c.restore();
-    // نجمة داخلية رفيعة (وردة) ودائرة مركزية
-    c.drawPath(_starPath(ctr, R * 0.62, 0.6), Paint()
-      ..color = Colors.white.withOpacity(0.30)
+    c.drawCircle(ctr, R, Paint()
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 0.8);
-    c.drawPath(star, Paint()
-      ..color = orn
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.9
-      ..strokeJoin = StrokeJoin.round);
-    for (int k = 0; k < 8; k++) {
-      final a = -math.pi / 2 + k * math.pi / 4;
-      c.drawCircle(Offset(ctr.dx + R * math.cos(a), ctr.dy + R * math.sin(a)), 1.6, Paint()..color = Colors.white);
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _StarMedallionPainter old) =>
-      old.progress != progress || old.fill != fill || old.orn != orn || old.done != done || old.count != count || old.target != target;
-}
-
-// نمط «الخاتم السليماني»: نجوم ثمانية متراصّة بشكل المشربية الإسلامية، وبينها معيّنات صغيرة
-class _TrellisPainter extends CustomPainter {
-  final Color color;
-  _TrellisPainter(this.color);
-  @override
-  void paint(Canvas c, Size s) {
-    const cell = 34.0;
-    final line = Paint()
-      ..color = color
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 0.8
-      ..strokeJoin = StrokeJoin.round;
-    final dot = Paint()..color = color.withOpacity(math.min(1.0, color.opacity * 2.4));
-    int row = 0;
-    for (double y = 0; y <= s.height + cell; y += cell / 2) {
-      final shift = row.isEven ? 0.0 : cell / 2;
-      for (double x = -cell; x <= s.width + cell; x += cell) {
-        final o = Offset(x + shift, y);
-        c.drawPath(_starPath(o, cell * 0.36), line);
-        c.drawCircle(o, 1.3, dot);
-      }
-      row++;
-    }
-    // معيّنات صغيرة عند نقاط التقاء النجوم
-    for (double y = cell / 4; y <= s.height + cell; y += cell / 2) {
-      for (double x = cell / 4; x <= s.width + cell; x += cell / 2) {
-        c.drawPath(_diamondPath(Offset(x, y), 1.6), dot);
-      }
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _TrellisPainter old) => old.color != color;
-}
-
-// إطار أرابيسك: حدّ ذهبي متدرّج + خط داخلي + شريط لآلئ + وردة بأوراق وسَعَفات في كل ركن
-class _OrnateFramePainter extends CustomPainter {
-  final Color orn;
-  final bool done;
-  _OrnateFramePainter(this.orn, this.done);
-
-  Color get _dim => Color.lerp(orn, Colors.black, 0.35)!;
-
-  void _leaf(Canvas c, Offset o, double angle, double len, Paint p) {
-    c.save();
-    c.translate(o.dx, o.dy);
-    c.rotate(angle);
-    final path = Path()
-      ..moveTo(0, 0)
-      ..quadraticBezierTo(len * 0.5, -len * 0.42, len, 0)
-      ..quadraticBezierTo(len * 0.5, len * 0.42, 0, 0)
-      ..close();
-    c.drawPath(path, p);
-    c.restore();
-  }
-
-  void _rosette(Canvas c, Offset o) {
-    c.drawCircle(o, 9.5, Paint()..color = Colors.black.withOpacity(0.35));
-    for (int k = 0; k < 8; k++) {
-      final a = k * math.pi / 4;
-      _leaf(c, o, a, 9.5, Paint()..color = k.isEven ? orn : Color.lerp(orn, Colors.white, 0.45)!);
-    }
-    c.drawCircle(o, 3.3, Paint()..color = _dim);
-    c.drawCircle(o, 2.1, Paint()..color = Colors.white.withOpacity(0.95));
-  }
-
-  void _corner(Canvas c, Offset o, double sx, double sy) {
-    c.save();
-    c.translate(o.dx, o.dy);
-    c.scale(sx, sy);
-    final stroke = Paint()
-      ..color = orn
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.5
-      ..strokeCap = StrokeCap.round;
-    // لفّتان من الأرابيسك تخرجان من الوردة على الضلعين
-    final s1 = Path()
-      ..moveTo(60, 11)
-      ..cubicTo(34, 11, 11, 18, 11, 60);
-    c.drawPath(s1, stroke);
-    final s2 = Path()
-      ..moveTo(44, 19)
-      ..cubicTo(30, 17, 19, 24, 19, 44);
-    c.drawPath(s2, stroke..strokeWidth = 1.0);
-    // أوراق نباتية على الساعدين
-    final leaf = Paint()..color = orn.withOpacity(0.95);
-    _leaf(c, Offset(28, 9.5), -0.5, 11, leaf);
-    _leaf(c, Offset(9.5, 28), math.pi / 2 + 0.5, 11, leaf);
-    _leaf(c, Offset(44, 8), -0.35, 9, leaf);
-    _leaf(c, Offset(8, 44), math.pi / 2 + 0.35, 9, leaf);
-    c.drawCircle(Offset(62, 11), 2.0, Paint()..color = Colors.white.withOpacity(0.9));
-    c.drawCircle(Offset(11, 62), 2.0, Paint()..color = Colors.white.withOpacity(0.9));
-    _rosette(c, Offset(17, 17));
-    c.restore();
-  }
-
-  @override
-  void paint(Canvas c, Size s) {
-    final rect = Offset.zero & s;
-    // حدّ ذهبي متدرّج (كالمعدن المصقول)
-    final outer = RRect.fromRectAndRadius(Rect.fromLTWH(1.5, 1.5, s.width - 3, s.height - 3), Radius.circular(24));
-    c.drawRRect(outer, Paint()
-      ..shader = SweepGradient(colors: [orn, Color.lerp(orn, Colors.white, 0.65)!, orn, _dim, orn], stops: [0.0, 0.25, 0.5, 0.75, 1.0]).createShader(rect)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = done ? 3.4 : 2.8);
-    // خط داخلي رفيع
-    c.drawRRect(RRect.fromRectAndRadius(Rect.fromLTWH(7, 7, s.width - 14, s.height - 14), Radius.circular(19)), Paint()
-      ..color = orn.withOpacity(0.7)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 0.9);
-    // شريط لآلئ بين الخطين
-    final pearl = Paint()..color = orn.withOpacity(0.85);
-    final cx = s.width / 2;
-    for (double x = 70; x <= s.width - 70; x += 11) {
-      if ((x - cx).abs() >= 66) c.drawCircle(Offset(x, 4.2), 1.35, pearl);
-      c.drawCircle(Offset(x, s.height - 4.2), 1.35, pearl);
-    }
-    for (double y = 70; y <= s.height - 70; y += 11) {
-      c.drawCircle(Offset(4.2, y), 1.35, pearl);
-      c.drawCircle(Offset(s.width - 4.2, y), 1.35, pearl);
-    }
-    // معيّنات في منتصف الجانبين
-    final dm = Paint()..color = orn;
-    for (final x in [4.2, s.width - 4.2]) {
-      final o = Offset(x, s.height / 2);
-      c.drawPath(_diamondPath(o, 6), dm);
-      c.drawPath(_diamondPath(o, 6), Paint()
-        ..color = Colors.white.withOpacity(0.85)
+      ..strokeWidth = 5.5
+      ..color = orn.withOpacity(0.25));
+    final pr = (done ? 1.0 : progress).clamp(0.0, 1.0).toDouble();
+    if (pr > 0) {
+      c.drawArc(Rect.fromCircle(center: ctr, radius: R), -math.pi / 2, 2 * math.pi * pr, false, Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 0.8);
+        ..strokeWidth = 5.5
+        ..strokeCap = StrokeCap.round
+        ..color = done ? orn : ring);
     }
-    // أركان الأرابيسك
-    _corner(c, Offset.zero, 1, 1);
-    _corner(c, Offset(s.width, 0), -1, 1);
-    _corner(c, Offset(0, s.height), 1, -1);
-    _corner(c, Offset(s.width, s.height), -1, -1);
-    // لؤلؤة وزهرة أسفل المنتصف
-    final y = s.height - 4.2;
-    for (final dx in [-26.0, -16.0, 16.0, 26.0]) {
-      c.drawCircle(Offset(cx + dx, y), 1.7, pearl);
-    }
-    c.drawPath(_diamondPath(Offset(cx, y), 6.5), dm);
-    c.drawPath(_diamondPath(Offset(cx, y), 6.5), Paint()
-      ..color = Colors.white.withOpacity(0.9)
+    c.drawCircle(ctr, R + 4.2, Paint()
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 0.9);
-    c.drawCircle(Offset(cx, y), 1.6, Paint()..color = _dim);
+      ..strokeWidth = 1.0
+      ..color = orn.withOpacity(0.75));
   }
 
   @override
-  bool shouldRepaint(covariant _OrnateFramePainter old) => old.orn != orn || old.done != done;
+  bool shouldRepaint(covariant _CounterRingPainter old) => old.progress != progress || old.ring != ring || old.orn != orn || old.done != done;
 }
 
-// لوحة (خرطوشة) ذهبية مزدوجة الخط أعلى المنتصف، في طرفيها نجمتان، وتحمل العدد المطلوب
+// لوحة (خرطوشة) ذهبية أعلى المنتصف على الإطار، تحمل العدد المطلوب
 class _CartouchePainter extends CustomPainter {
   final Color orn;
   _CartouchePainter(this.orn);
@@ -4466,18 +4699,14 @@ class _CartouchePainter extends CustomPainter {
   void paint(Canvas c, Size s) {
     final w = s.width, h = s.height;
     final dark = Color(0xFF8A6A1F);
-    Path plaque(double inset) {
-      final i = inset;
-      return Path()
-        ..moveTo(i, h / 2)
-        ..lineTo(h * 0.55, i)
-        ..lineTo(w - h * 0.55, i)
-        ..lineTo(w - i, h / 2)
-        ..lineTo(w - h * 0.55, h - i)
-        ..lineTo(h * 0.55, h - i)
-        ..close();
-    }
-
+    Path plaque(double i) => Path()
+      ..moveTo(i, h / 2)
+      ..lineTo(h * 0.55, i)
+      ..lineTo(w - h * 0.55, i)
+      ..lineTo(w - i, h / 2)
+      ..lineTo(w - h * 0.55, h - i)
+      ..lineTo(h * 0.55, h - i)
+      ..close();
     final path = plaque(0);
     c.drawShadow(path, Colors.black, 4, false);
     final rect = Offset.zero & s;
@@ -4490,7 +4719,6 @@ class _CartouchePainter extends CustomPainter {
       ..color = dark.withOpacity(0.55)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 0.7);
-    // نجمتان صغيرتان في الطرفين
     for (final x in [h * 0.62, w - h * 0.62]) {
       c.drawPath(_starPath(Offset(x, h / 2), 4.6), Paint()..color = dark);
       c.drawCircle(Offset(x, h / 2), 1.1, Paint()..color = Color(0xFFFFF6D6));
@@ -4499,39 +4727,6 @@ class _CartouchePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _CartouchePainter old) => old.orn != orn;
-}
-
-// فاصل زخرفي رفيع (خط – معيّن – خط) بين رأس الصندوق ونصّه
-class _OrnDivider extends StatelessWidget {
-  final Color color;
-  const _OrnDivider(this.color);
-  @override
-  Widget build(BuildContext context) {
-    Widget line(bool fadeToEnd) => Expanded(
-          child: Container(
-            height: 1.2,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: fadeToEnd ? Alignment.centerRight : Alignment.centerLeft,
-                end: fadeToEnd ? Alignment.centerLeft : Alignment.centerRight,
-                colors: [color.withOpacity(0.85), color.withOpacity(0.0)],
-              ),
-            ),
-          ),
-        );
-    Widget dm(double sz, double o) => Transform.rotate(angle: math.pi / 4, child: Container(width: sz, height: sz, color: color.withOpacity(o)));
-    return Row(children: [
-      line(false),
-      SizedBox(width: 6),
-      dm(5, 0.6),
-      SizedBox(width: 4),
-      dm(8, 1.0),
-      SizedBox(width: 4),
-      dm(5, 0.6),
-      SizedBox(width: 6),
-      line(true),
-    ]);
-  }
 }
 
 class CountBox extends StatefulWidget {
@@ -4563,6 +4758,7 @@ class _RipplePainter extends CustomPainter {
 class _CountBoxState extends State<CountBox> with TickerProviderStateMixin {
   late final AnimationController _c = AnimationController(vsync: this, duration: Duration(milliseconds: 280));
   late final AnimationController _r = AnimationController(vsync: this, duration: Duration(milliseconds: 700));
+  late final AnimationController _s = AnimationController(vsync: this, duration: Duration(seconds: 6))..repeat(); // لمعان الإطار
   late final Animation<double> _scale = TweenSequence<double>([
     TweenSequenceItem(tween: Tween<double>(begin: 1.0, end: 1.035).chain(CurveTween(curve: Curves.easeOut)), weight: 40),
     TweenSequenceItem(tween: Tween<double>(begin: 1.035, end: 1.0).chain(CurveTween(curve: Curves.easeInOut)), weight: 60),
@@ -4579,6 +4775,7 @@ class _CountBoxState extends State<CountBox> with TickerProviderStateMixin {
   void dispose() {
     _c.dispose();
     _r.dispose();
+    _s.dispose();
     super.dispose();
   }
 
@@ -4607,14 +4804,12 @@ class _CountBoxState extends State<CountBox> with TickerProviderStateMixin {
     final dark = isDark(context);
     final done = widget.count >= widget.target;
     final prog = (widget.count / widget.target).clamp(0.0, 1.0).toDouble();
+    final inner = paperColor(context); // داخل سادة تماماً ليبرز النص
     return ScaleTransition(
       scale: _scale,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onTapDown: (d) {
-          _tapPos = d.localPosition - Offset(10, 18);
-          setState(() => _down = true);
-        },
+        onTapDown: (_) => setState(() => _down = true),
         onTapUp: (_) => setState(() => _down = false),
         onTapCancel: () => setState(() => _down = false),
         onTap: _tap,
@@ -4622,130 +4817,87 @@ class _CountBoxState extends State<CountBox> with TickerProviderStateMixin {
           padding: EdgeInsets.fromLTRB(10, 20, 10, 12),
           child: TweenAnimationBuilder<double>(
             tween: Tween<double>(begin: 0, end: prog),
-            duration: Duration(milliseconds: 500),
+            duration: Duration(milliseconds: 600),
             curve: Curves.easeOutCubic,
             child: widget.child,
             builder: (context, p, child) => AnimatedBuilder(
               animation: _glow,
               builder: (context, _) {
                 final g = math.max(_glow.value, _down ? 1.0 : 0.0);
-                final base = _colorFor(p, dark);
-                final frame = Color.lerp(base, Colors.white, 0.20 * g)!;
-                final orn = Color.lerp(dark ? Color(0xFFE9C66B) : Color(0xFFC9A047), Colors.white, 0.35 * g)!;
-                final radius = BorderRadius.circular(26);
+                final ring = dark ? lighten(0.35) : green; // لون التقدّم من لون التطبيق
+                final orn = Color.lerp(dark ? Color(0xFFE9C66B) : Color(0xFFC9A047), Colors.white, 0.30 * g)!;
                 return Stack(clipBehavior: Clip.none, children: [
+                  // الصندوق: داخل سادة + ظل ناعم
                   Container(
                     decoration: BoxDecoration(
-                      borderRadius: radius,
+                      color: inner,
+                      borderRadius: BorderRadius.circular(26),
                       boxShadow: [
-                        BoxShadow(color: frame.withOpacity((done ? 0.50 : 0.26) + 0.15 * g), blurRadius: (done ? 28 : 18) + 6 * g, spreadRadius: done ? 1.5 : 0, offset: Offset(0, 7)),
-                        BoxShadow(color: orn.withOpacity(done ? 0.35 : 0.0), blurRadius: 40, spreadRadius: 2),
+                        BoxShadow(color: (done ? orn : Colors.black).withOpacity(done ? 0.40 : (dark ? 0.35 : 0.14)), blurRadius: done ? 24 : 12, offset: Offset(0, 5)),
                       ],
                     ),
-                    child: ClipRRect(
-                      borderRadius: radius,
-                      child: Stack(children: [
-                        // ورقة كريمية (أو ليلية) تحت كل الطبقات
-                        Positioned.fill(child: ColoredBox(color: dark ? darkTint(0.10) : Color(0xFFFFFBEF))),
-                        // توهّج لوني ناعم من الأعلى
-                        Positioned.fill(
-                          child: DecoratedBox(
-                            decoration: BoxDecoration(
-                              gradient: RadialGradient(
-                                center: Alignment(0.0, -1.0),
-                                radius: 1.35,
-                                colors: [frame.withOpacity((dark ? 0.34 : 0.24) + 0.12 * g), frame.withOpacity((dark ? 0.06 : 0.04) + 0.05 * g)],
-                              ),
-                            ),
-                          ),
-                        ),
-                        // تعبئة لونية تتقدّم من اليمين
-                        Positioned.fill(
-                          child: Align(
-                            alignment: AlignmentDirectional.centerStart,
-                            child: FractionallySizedBox(
-                              widthFactor: p.clamp(0.0, 1.0).toDouble(),
-                              heightFactor: 1,
-                              child: DecoratedBox(
-                                decoration: BoxDecoration(
-                                  gradient: LinearGradient(begin: AlignmentDirectional.centerStart, end: AlignmentDirectional.centerEnd, colors: [frame.withOpacity((dark ? 0.26 : 0.20) + 0.10 * g), frame.withOpacity(0.0)]),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                        // مشربية الخاتم السليماني (مُخزَّنة، لا تُعاد رسمها أثناء الوهج)
-                        Positioned.fill(child: IgnorePointer(child: RepaintBoundary(child: CustomPaint(painter: _TrellisPainter(base.withOpacity(dark ? 0.16 : 0.13)))))),
-                        Positioned.fill(
-                          child: IgnorePointer(
-                            child: AnimatedBuilder(animation: _r, builder: (_, __) => CustomPaint(painter: _RipplePainter(_tapPos, _r.value, frame))),
-                          ),
-                        ),
-                        Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                          Padding(
-                            padding: EdgeInsets.fromLTRB(30, 30, 30, 0),
-                            child: Row(children: [
-                              SizedBox(
-                                width: 84,
-                                height: 84,
-                                child: Stack(alignment: Alignment.center, children: [
-                                  SizedBox.expand(child: CustomPaint(painter: _StarMedallionPainter(p, frame, orn, done, widget.count, widget.target))),
-                                  AnimatedSwitcher(
-                                    duration: Duration(milliseconds: 220),
-                                    transitionBuilder: (w, a) => ScaleTransition(scale: a, child: FadeTransition(opacity: a, child: w)),
-                                    child: done
-                                        ? Icon(Icons.check_rounded, key: ValueKey('done'), size: 32, color: Colors.white, shadows: [Shadow(color: Colors.black.withOpacity(0.6), blurRadius: 5)])
-                                        : SizedBox(
-                                            key: ValueKey(widget.count),
-                                            width: 36,
-                                            child: FittedBox(
-                                              fit: BoxFit.scaleDown,
-                                              child: Text('${widget.count}', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: Colors.white, height: 1.1, shadows: [Shadow(color: Colors.black.withOpacity(0.65), blurRadius: 5)])),
-                                            ),
-                                          ),
-                                  ),
-                                ]),
-                              ),
-                              SizedBox(width: 14),
-                              Expanded(
-                                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                                  Row(children: [
-                                    Flexible(
-                                      child: Text(
-                                        done ? 'تمّ  ${widget.target} / ${widget.target}' : (widget.count == 0 ? 'اضغط للعدّ' : '${widget.count} / ${widget.target}'),
-                                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: done ? orn : frame, height: 1.3),
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                      Padding(
+                        padding: EdgeInsets.fromLTRB(26, 28, 26, 0),
+                        child: Row(children: [
+                          SizedBox(
+                            width: 64,
+                            height: 64,
+                            child: Stack(alignment: Alignment.center, children: [
+                              SizedBox.expand(child: CustomPaint(painter: _CounterRingPainter(p, ring, orn, done))),
+                              AnimatedSwitcher(
+                                duration: Duration(milliseconds: 220),
+                                transitionBuilder: (w, a) => ScaleTransition(scale: a, child: FadeTransition(opacity: a, child: w)),
+                                child: done
+                                    ? Icon(Icons.check_rounded, key: ValueKey('done'), size: 30, color: readAccent(context))
+                                    : SizedBox(
+                                        key: ValueKey(widget.count),
+                                        width: 34,
+                                        child: FittedBox(
+                                          fit: BoxFit.scaleDown,
+                                          child: Text('${widget.count}', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: readInk(context), height: 1.1)),
+                                        ),
                                       ),
-                                    ),
-                                    if (done) ...[SizedBox(width: 6), Icon(Icons.auto_awesome, size: 19, color: orn)],
-                                  ]),
-                                  Text(
-                                    done ? 'تقبّل الله طاعتك' : (widget.count == 0 ? 'المطلوب ${widget.target} مرات' : 'باقي ${widget.target - widget.count}'),
-                                    style: TextStyle(fontSize: 12.5, color: ink(context).withOpacity(0.70), height: 1.4),
-                                  ),
-                                ]),
                               ),
-                              if (widget.count > 0)
-                                InkWell(
-                                  onTap: widget.onReset,
-                                  customBorder: CircleBorder(),
-                                  child: Container(
-                                    padding: EdgeInsets.all(8),
-                                    decoration: BoxDecoration(
-                                      shape: BoxShape.circle,
-                                      gradient: RadialGradient(colors: [orn.withOpacity(0.30), orn.withOpacity(0.10)]),
-                                      border: Border.all(color: orn.withOpacity(0.9), width: 1.2),
-                                    ),
-                                    child: Icon(Icons.restart_alt, size: 20, color: frame),
-                                  ),
-                                ),
                             ]),
                           ),
-                          Padding(padding: EdgeInsets.fromLTRB(34, 12, 34, 0), child: _OrnDivider(orn)),
-                          Padding(padding: EdgeInsets.fromLTRB(30, 10, 30, 30), child: child),
+                          SizedBox(width: 14),
+                          Expanded(
+                            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                              Text(
+                                done ? 'تمّ  ${widget.target} / ${widget.target}' : (widget.count == 0 ? 'اضغط للعدّ' : '${widget.count} / ${widget.target}'),
+                                style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: readAccent(context), height: 1.3),
+                              ),
+                              Text(
+                                done ? 'تقبّل الله طاعتك' : (widget.count == 0 ? 'المطلوب ${widget.target} مرات' : 'باقي ${widget.target - widget.count}'),
+                                style: TextStyle(fontSize: 12.5, color: readInk(context).withOpacity(0.65), height: 1.4),
+                              ),
+                            ]),
+                          ),
+                          if (widget.count > 0)
+                            InkWell(
+                              onTap: widget.onReset,
+                              customBorder: CircleBorder(),
+                              child: Container(
+                                padding: EdgeInsets.all(8),
+                                decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: orn, width: 1.2)),
+                                child: Icon(Icons.restart_alt, size: 20, color: readAccent(context)),
+                              ),
+                            ),
                         ]),
-                        // إطار الأرابيسك فوق كل شيء
-                        Positioned.fill(child: IgnorePointer(child: CustomPaint(painter: _OrnateFramePainter(orn, done)))),
-                      ]),
+                      ),
+                      Padding(padding: EdgeInsets.fromLTRB(30, 12, 30, 0), child: Container(height: 1, color: orn.withOpacity(0.35))),
+                      Padding(padding: EdgeInsets.fromLTRB(26, 10, 26, 28), child: child),
+                    ]),
+                  ),
+                  // إطار الزخرفة (ثابت: شريط + تقدّم)
+                  Positioned.fill(child: IgnorePointer(child: RepaintBoundary(child: CustomPaint(painter: _BandPainter(p, g, ring, orn, done))))),
+                  // لمعان متحرك حول الإطار
+                  Positioned.fill(
+                    child: IgnorePointer(
+                      child: RepaintBoundary(
+                        child: AnimatedBuilder(animation: _s, builder: (_, __) => CustomPaint(painter: _ShimmerPainter(_s.value, done))),
+                      ),
                     ),
                   ),
                   // لوحة ذهبية أعلى المنتصف
@@ -5079,9 +5231,10 @@ class _PrayerCardState extends State<PrayerCard> {
       frac = now.difference(rise).inSeconds / math.max(1, set.difference(rise).inSeconds);
     }
     final radius = BorderRadius.circular(30);
-    return Container(
+    return AnimatedContainer(
+      duration: Duration(milliseconds: 1500),
       decoration: BoxDecoration(
-        gradient: LinearGradient(begin: Alignment.topRight, end: Alignment.bottomLeft, colors: dark ? [deepDark, deepGreen2] : [deepGreen, green2]),
+        gradient: LinearGradient(begin: Alignment.topRight, end: Alignment.bottomLeft, colors: _skyColors(today, now, dark)),
         borderRadius: radius,
         border: Border.all(color: gold.withOpacity(0.75), width: 1.3),
         boxShadow: [BoxShadow(color: (dark ? Colors.black : green).withOpacity(0.35), blurRadius: 18, offset: Offset(0, 8))],
@@ -5096,7 +5249,7 @@ class _PrayerCardState extends State<PrayerCard> {
               Row(children: [
                 GestureDetector(
                   behavior: HitTestBehavior.opaque,
-                  onTap: widget.tappable ? () => Navigator.push(context, MaterialPageRoute(builder: (_) => PrayerSettingsPage())) : null,
+                  onTap: widget.tappable ? () => Navigator.push(context, SoftRoute(builder: (_) => PrayerSettingsPage())) : null,
                   child: Container(
                     padding: EdgeInsets.symmetric(horizontal: 12, vertical: 5),
                     decoration: BoxDecoration(
@@ -5120,6 +5273,7 @@ class _PrayerCardState extends State<PrayerCard> {
                 height: 124,
                 child: Stack(children: [
                   Positioned.fill(child: CustomPaint(painter: _SunArcPainter(frac))),
+                  Positioned.fill(child: IgnorePointer(child: _ArcSparkle())),
                   Align(
                     alignment: Alignment.bottomCenter,
                     child: Padding(
