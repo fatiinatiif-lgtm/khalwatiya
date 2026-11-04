@@ -170,9 +170,6 @@ Future<void> toggleFavorite(IndexEntry e) async {
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  // وضع الشاشة الكاملة: إخفاء شريط الحالة وأزرار النظام (تظهر مؤقتاً بالسحب من حافة الشاشة)
-  SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-  WidgetsBinding.instance.addObserver(ImmersiveObserver());
   await loadFavorites();
   runApp(KhalwatiApp());
 }
@@ -212,36 +209,102 @@ class SplashScreen extends StatefulWidget {
   State<SplashScreen> createState() => _SplashScreenState();
 }
 
-class _SplashScreenState extends State<SplashScreen> {
+class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderStateMixin {
+  late final AnimationController ctrl;
+
   @override
   void initState() {
     super.initState();
-    Timer(Duration(seconds: 4), () {
-      if (mounted) {
+    ctrl = AnimationController(vsync: this, duration: Duration(seconds: 5));
+    ctrl.addStatusListener((st) {
+      if (st == AnimationStatus.completed && mounted) {
         Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => HomeShell()));
       }
     });
+    ctrl.forward();
+  }
+
+  @override
+  void dispose() {
+    ctrl.dispose();
+    super.dispose();
+  }
+
+  // عداد القلب: يعد من 1 إلى 5، وفي كل ثانية يخرج منه قلب صغير يطفو لأعلى
+  Widget _heartCounter(double t) {
+    final sec = t * 5;
+    final n = math.min(sec.floor(), 4) + 1;
+    final frac = sec - sec.floor();
+    final pulse = frac < 0.25 ? 1.0 + 0.18 * math.sin(frac / 0.25 * math.pi) : 1.0;
+    final hearts = [Color(0xFFFF8FA3), Color(0xFFE5576B), lighten(0.55)];
+    final particles = <Widget>[];
+    for (int i = 0; i < 5; i++) {
+      final age = sec - i;
+      if (age < 0 || age > 1.8) continue;
+      final sway = math.sin(age * 3 + i) * 18 * (i.isEven ? 1 : -1);
+      particles.add(Align(
+        alignment: Alignment.center,
+        child: Transform.translate(
+          offset: Offset(sway, -45 - age * 80),
+          child: Opacity(
+            opacity: (1 - age / 1.8).clamp(0.0, 1.0).toDouble(),
+            child: Transform.scale(scale: 0.5 + 0.45 * age, child: Icon(Icons.favorite, size: 34, color: hearts[i % 3])),
+          ),
+        ),
+      ));
+    }
+    return Stack(alignment: Alignment.center, clipBehavior: Clip.none, children: [
+      ...particles,
+      Transform.scale(
+        scale: pulse,
+        child: Stack(alignment: Alignment.center, children: [
+          Icon(Icons.favorite, size: 116, color: Color(0xFFE5576B), shadows: [Shadow(color: Color(0x88E5576B), blurRadius: 24)]),
+          Padding(
+            padding: EdgeInsets.only(bottom: 6),
+            child: Text('$n', style: TextStyle(fontFamily: 'Rsail', fontWeight: FontWeight.w700, fontSize: 46, color: Colors.white)),
+          ),
+        ]),
+      ),
+    ]);
   }
 
   @override
   Widget build(BuildContext context) => Scaffold(
         backgroundColor: deepGreen,
         body: SafeArea(
-          child: Center(
-            child: Padding(
-              padding: EdgeInsets.all(28),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(28),
-                    child: Image.asset('assets/icon/app_icon.png', width: 180, height: 180, fit: BoxFit.cover),
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(18, 14, 18, 8),
+            child: Column(
+              children: [
+                Expanded(
+                  child: Center(
+                    child: AspectRatio(
+                      aspectRatio: 1.05,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(28),
+                          border: Border.all(color: gold, width: 2),
+                          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.35), blurRadius: 18, offset: Offset(0, 8))],
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(26),
+                          child: CustomPaint(painter: MosquePainter(), size: Size.infinite),
+                        ),
+                      ),
+                    ),
                   ),
-                  SizedBox(height: 28),
-                  Text('هلموا إلى ذكر الله أيها المريدون',
-                      textAlign: TextAlign.center, style: TextStyle(fontSize: 20, color: silver, height: 1.8)),
-                ],
-              ),
+                ),
+                SizedBox(height: 12),
+                Text(
+                  'هلموا إلى ذكر الله أيها المريدون',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontFamily: 'Rsail', fontWeight: FontWeight.w700, fontSize: 27, color: Color(0xFFE6D19A), height: 1.7),
+                ),
+                SizedBox(
+                  height: 190,
+                  child: AnimatedBuilder(animation: ctrl, builder: (_, __) => _heartCounter(ctrl.value)),
+                ),
+              ],
             ),
           ),
         ),
@@ -452,6 +515,7 @@ class _TextReaderPageState extends State<TextReaderPage> {
   int bm = -1; // رقم الفقرة/البيت الذي عليه علامة مكان التوقف
   final ScrollController sc = ScrollController();
   final Map<int, GlobalKey> keys = {};
+  final Map<int, int> tcounts = {}; // عدّ الصناديق المزخرفة (اليوم الحالي فقط)
   bool auto = false;
   int speedLevel = 3;
   Timer? autoTimer;
@@ -476,12 +540,124 @@ class _TextReaderPageState extends State<TextReaderPage> {
     final p = await SharedPreferences.getInstance();
     final v = p.getInt(prefKey) ?? -1;
     final sp = (p.getInt('auto_speed') ?? 3).clamp(1, speeds.length).toInt();
+    final tc = <int, int>{};
+    final prefix = 'tc_${widget.title}|';
+    final suffix = '|${todayKey()}';
+    for (final k in p.getKeys()) {
+      if (k.startsWith(prefix) && k.endsWith(suffix) && k.length > prefix.length + suffix.length) {
+        final idx = int.tryParse(k.substring(prefix.length, k.length - suffix.length));
+        if (idx != null) tc[idx] = p.getInt(k) ?? 0;
+      }
+    }
     if (mounted) {
       setState(() {
         bm = v;
         speedLevel = sp;
+        tcounts
+          ..clear()
+          ..addAll(tc);
       });
     }
+  }
+
+  String _tkey(int idx) => 'tc_${widget.title}|$idx|${todayKey()}';
+
+  Map<int, int> _boxTargets = {}; // فقرة العدد -> العدد المطلوب (تُحدَّث في كل بناء للصفحة)
+
+  Future<void> _tapCount(int idx, int target) async {
+    final c = tcounts[idx] ?? 0;
+    if (c >= target) return;
+    final n = c + 1;
+    setState(() => tcounts[idx] = n);
+    final p = await SharedPreferences.getInstance();
+    await p.setInt(_tkey(idx), n);
+    if (n >= target) {
+      HapticFeedback.heavyImpact();
+      if (_autoByBoxes && !_roundLogged) await _checkAllDone();
+    }
+  }
+
+  bool _roundLogged = false; // هل سُجّلت القراءة الحالية؟
+  bool get _autoByBoxes => widget.title == 'المسبعات'; // المسبعات تُسجَّل تلقائياً عند اكتمال كل الصناديق، والباقي بزر "أتممت القراءة"
+
+  Future<void> _checkAllDone() async {
+    if (_boxTargets.isEmpty) return;
+    for (final e in _boxTargets.entries) {
+      if ((tcounts[e.key] ?? 0) < e.value) return;
+    }
+    await _finishReading();
+  }
+
+  // تسجيل قراءة جديدة في سجل الإنجازات (برقمها) + تهنئة بالقلوب
+  Future<void> _finishReading() async {
+    if (_roundLogged) return;
+    setState(() => _roundLogged = true);
+    final p = await SharedPreferences.getInstance();
+    final old = p.getStringList('m_log') ?? [];
+    final no = old.where((r) {
+          final q = r.split('\t');
+          return q.length >= 5 && q[2] == widget.title;
+        }).length +
+        1;
+    await addLog(widget.title, 'إتمام ${widget.title} (القراءة رقم $no)', 1);
+    HapticFeedback.heavyImpact();
+    if (!mounted) return;
+    showCelebration(
+      context,
+      widget.title,
+      1,
+      particle: Icons.favorite_rounded,
+      palette: [Color(0xFFFF6B8A), Color(0xFFFF9EB5), Color(0xFFE63E6D), gold],
+      title: 'ما شاء الله، أتممت ${widget.title}!',
+      body: 'هذه قراءتك رقم $no، وتم تسجيلها في سجل الإنجازات.',
+    );
+  }
+
+  // المسبعات: تصفير كل الصناديق لبدء قراءة جديدة تُحسب من جديد
+  Future<void> _newRound() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('بدء قراءة جديدة؟'),
+        content: Text('سيتم تصفير عدّ كل الصناديق، والقراءة السابقة تبقى محفوظة في سجل الإنجازات.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text('إلغاء')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text('ابدئي')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    final p = await SharedPreferences.getInstance();
+    for (final k in _boxTargets.keys) {
+      await p.remove(_tkey(k));
+    }
+    if (!mounted) return;
+    setState(() {
+      tcounts.clear();
+      _roundLogged = false;
+    });
+  }
+
+  Widget _finishButton() => Padding(
+        padding: EdgeInsets.fromLTRB(8, 18, 8, 10),
+        child: FilledButton.icon(
+          style: FilledButton.styleFrom(
+            backgroundColor: gold,
+            foregroundColor: Colors.black87,
+            disabledBackgroundColor: green.withOpacity(0.6),
+            disabledForegroundColor: Colors.white,
+            padding: EdgeInsets.symmetric(vertical: 14),
+          ),
+          onPressed: _roundLogged ? null : _finishReading,
+          icon: Icon(_roundLogged ? Icons.check_circle : Icons.favorite),
+          label: Text(_roundLogged ? 'تم تسجيل هذه القراءة' : 'أتممت القراءة', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
+        ),
+      );
+
+  Future<void> _resetCount(int idx) async {
+    setState(() => tcounts[idx] = 0);
+    final p = await SharedPreferences.getInstance();
+    await p.remove(_tkey(idx));
   }
 
   void _startAuto() {
@@ -623,6 +799,8 @@ class _TextReaderPageState extends State<TextReaderPage> {
     final appBar = AppBar(
       title: Text(widget.title),
       actions: [
+        if (_autoByBoxes)
+          IconButton(tooltip: 'قراءة جديدة', icon: Icon(Icons.replay), onPressed: _newRound),
         IconButton(
           tooltip: 'تمرير تلقائي',
           icon: Icon(auto ? Icons.pause_circle_filled : Icons.play_circle_outline),
@@ -667,6 +845,7 @@ class _TextReaderPageState extends State<TextReaderPage> {
                     PageTitle(text: heading),
                     SizedBox(height: 14),
                     PoemView(lines: body, cfg: cfg, marked: hasMark ? bm : -1, onMark: _toggle, keyFor: _key),
+                    _finishButton(),
                   ],
                 ),
               ),
@@ -677,6 +856,19 @@ class _TextReaderPageState extends State<TextReaderPage> {
     }
 
     final st = bodyStyle(context);
+    final splits = body.map(splitCount).toList();
+    _boxTargets = {for (int k = 0; k < body.length; k++) if (splits[k] != null) k: splits[k]!.target};
+    final blockStart = <int, int>{}; // فقرة العدد -> أول فقرة داخل صندوقها
+    final absorbed = <int>{}; // بسملة/عنوان يُعرض داخل صندوق الفقرة التالية
+    for (int k = 0; k < body.length; k++) {
+      if (splits[k] == null) continue;
+      var s0 = k;
+      while (s0 > 0 && splits[s0 - 1] == null && isCountLeadIn(body[s0 - 1])) {
+        s0--;
+        absorbed.add(s0);
+      }
+      blockStart[k] = s0;
+    }
     return Scaffold(
       appBar: appBar,
       body: Column(children: [ReadingTimerBar(title: widget.title), Expanded(child: _withAutoBar(Container(
@@ -689,7 +881,7 @@ class _TextReaderPageState extends State<TextReaderPage> {
             child: ListView.builder(
               controller: sc,
               padding: EdgeInsets.only(top: 8, bottom: 16),
-              itemCount: body.length + 1,
+              itemCount: body.length + 1 + (_autoByBoxes ? 0 : 1),
               itemBuilder: (context, i) {
                 if (i == 0) {
                   return Padding(
@@ -697,19 +889,40 @@ class _TextReaderPageState extends State<TextReaderPage> {
                     child: PageTitle(text: heading),
                   );
                 }
+                if (i == body.length + 1) return _finishButton();
                 final idx = i - 1;
+                if (absorbed.contains(idx)) return SizedBox.shrink();
+                final divider = Padding(
+                  padding: EdgeInsets.only(bottom: 6),
+                  child: Center(child: Container(width: 38, height: 1, color: gold.withOpacity(0.38))),
+                );
+                Widget line(int j, String text) => markWrap(
+                      key: _key(j),
+                      marked: hasMark && bm == j,
+                      onLongPress: () => _toggle(j),
+                      iconSize: 16,
+                      child: KashidaParagraph(text: text, style: st),
+                    );
+                final sp = splits[idx];
+                if (sp == null) {
+                  return Column(children: [line(idx, body[idx]), divider]);
+                }
+                final parts = <Widget>[];
+                for (int j = blockStart[idx] ?? idx; j < idx; j++) {
+                  parts.add(line(j, body[j]));
+                }
+                parts.add(line(idx, sp.head));
                 return Column(children: [
-                  markWrap(
-                    key: _key(idx),
-                    marked: hasMark && bm == idx,
-                    onLongPress: () => _toggle(idx),
-                    iconSize: 16,
-                    child: KashidaParagraph(text: body[idx], style: st),
+                  CountBox(
+                    count: tcounts[idx] ?? 0,
+                    target: sp.target,
+                    onTap: () => _tapCount(idx, sp.target),
+                    onReset: () => _resetCount(idx),
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: parts),
                   ),
-                  Padding(
-                    padding: EdgeInsets.only(bottom: 6),
-                    child: Center(child: Container(width: 38, height: 1, color: gold.withOpacity(0.38))),
-                  ),
+                  if (sp.rest.isNotEmpty)
+                    Padding(padding: EdgeInsets.only(top: 4), child: KashidaParagraph(text: sp.rest, style: st)),
+                  divider,
                 ]);
               },
             ),
@@ -1385,7 +1598,7 @@ class _WirdPageState extends State<WirdPage> {
       ),
     );
     final text = textC.text.replaceAll('\t', ' ').trim();
-    final n = int.tryParse(numC.text.trim()) ?? 0;
+    final n = parseIntAr(numC.text);
     if (ok == true && text.isNotEmpty && n >= 1) {
       final list = [...custom, Task('c${DateTime.now().millisecondsSinceEpoch}', text, n, custom: true)];
       await saveCustom(widget.def.id, list);
@@ -1546,13 +1759,48 @@ class _CounterPageState extends State<CounterPage> {
     if (!ready || count >= target) return;
     setState(() => count++);
     await prefs.setInt(ckey, count);
+    if (count >= target) await _complete();
+  }
+
+  // عند إتمام العدد: يُحفظ في السجل وتظهر رسالة التهنئة مع النجوم
+  Future<void> _complete() async {
+    HapticFeedback.heavyImpact();
+    await addLog(widget.wird, widget.task.text, target);
+    if (!mounted) return;
+    showCelebration(context, widget.task.text, target);
+  }
+
+  // إضافة عدد سُبِّح خارج التطبيق
+  Future<void> _addCount() async {
+    if (!ready) return;
     if (count >= target) {
-      HapticFeedback.heavyImpact();
-      await addLog(widget.wird, widget.task.text, target);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('تم الإنجاز وحُفظ في السجل')));
-      }
+      final sm = ScaffoldMessenger.of(context);
+      sm.hideCurrentSnackBar();
+      sm.showSnackBar(SnackBar(content: Text('اكتمل العدد المطلوب. صفّر العداد لتبدأ من جديد.')));
+      return;
     }
+    final c = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('إضافة عدد'),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          Text('أدخل عدد ما سبّحته خارج التطبيق ليُضاف إلى العداد.', style: TextStyle(fontSize: 14, height: 1.6)),
+          SizedBox(height: 12),
+          TextField(controller: c, autofocus: true, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: 'العدد')),
+        ]),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text('إلغاء')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text('إضافة')),
+        ],
+      ),
+    );
+    final n = parseIntAr(c.text);
+    if (ok != true || n < 1 || !mounted) return;
+    final before = count;
+    setState(() => count = math.min(count + n, target));
+    await prefs.setInt(ckey, count);
+    if (before < target && count >= target) await _complete();
   }
 
   Future<void> _reset() async {
@@ -1573,7 +1821,7 @@ class _CounterPageState extends State<CounterPage> {
         ],
       ),
     );
-    final n = int.tryParse(c.text.trim()) ?? 0;
+    final n = parseIntAr(c.text);
     if (ok == true && n >= 1) {
       await prefs.setInt(tkey, n);
       setState(() {
@@ -1588,19 +1836,46 @@ class _CounterPageState extends State<CounterPage> {
   Widget build(BuildContext context) {
     final done = ready && count >= target;
     return Scaffold(
-      appBar: AppBar(title: Text(widget.wird)),
+      appBar: AppBar(
+        title: Text(widget.wird),
+        actions: [
+          PopupMenuButton<String>(
+            tooltip: 'إعدادات العداد',
+            icon: Icon(Icons.tune),
+            onSelected: (v) {
+              if (v == 'add') {
+                _addCount();
+              } else if (v == 'target') {
+                _editTarget();
+              } else if (v == 'reset') {
+                _reset();
+              } else if (v == 'log') {
+                Navigator.push(context, MaterialPageRoute(builder: (_) => LogPage()));
+              }
+            },
+            itemBuilder: (ctx) => [
+              PopupMenuItem(value: 'add', child: menuRow(Icons.add_circle_outline, 'إضافة عدد')),
+              PopupMenuItem(value: 'target', child: menuRow(Icons.edit, 'تعديل العدد المطلوب')),
+              PopupMenuItem(value: 'reset', child: menuRow(Icons.restart_alt, 'تصفير العداد')),
+              PopupMenuDivider(),
+              PopupMenuItem(value: 'log', child: menuRow(Icons.history, 'سجل الإنجازات')),
+            ],
+          ),
+        ],
+      ),
       body: !ready
           ? Center(child: CircularProgressIndicator())
           : Column(children: [
               Container(
                 width: double.infinity,
-                constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.3),
-                margin: EdgeInsets.all(16),
-                padding: EdgeInsets.all(16),
+                alignment: Alignment.center,
+                constraints: BoxConstraints(minHeight: 130, maxHeight: MediaQuery.of(context).size.height * 0.38),
+                margin: EdgeInsets.fromLTRB(14, 14, 14, 8),
+                padding: EdgeInsets.symmetric(horizontal: 22, vertical: 22),
                 decoration: BoxDecoration(
                   color: isDark(context) ? Color(0x22FFFFFF) : Color(0xB3FFFFFF),
-                  borderRadius: BorderRadius.circular(18),
-                  border: Border.all(color: Color(0x55C6A75E)),
+                  borderRadius: BorderRadius.circular(22),
+                  border: Border.all(color: gold.withOpacity(0.7), width: 1.4),
                 ),
                 child: SingleChildScrollView(child: Text(widget.task.text, textAlign: TextAlign.center, style: bodyStyle(context))),
               ),
@@ -1663,14 +1938,6 @@ class _CounterPageState extends State<CounterPage> {
                     ),
                   ),
                 ),
-              ),
-              Padding(
-                padding: EdgeInsets.fromLTRB(16, 0, 16, 24),
-                child: Row(children: [
-                  Expanded(child: OutlinedButton.icon(onPressed: _reset, icon: Icon(Icons.restart_alt), label: Text('تصفير'))),
-                  SizedBox(width: 12),
-                  Expanded(child: OutlinedButton.icon(onPressed: _editTarget, icon: Icon(Icons.edit), label: Text('تعديل العدد'))),
-                ]),
               ),
             ]),
     );
@@ -2860,17 +3127,6 @@ class PageTitle extends StatelessWidget {
 }
 
 
-// يعيد وضع الشاشة الكاملة كلما رجع التطبيق للواجهة (بعد النوافذ ولوحة المفاتيح والتنقل بين التطبيقات)
-class ImmersiveObserver with WidgetsBindingObserver {
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
-      SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-    }
-  }
-}
-
-
 // ===================== بطاقة قسم مميزة (الأوراد والمسبحة) =====================
 class FancyCard extends StatefulWidget {
   final String title, subtitle;
@@ -2967,6 +3223,496 @@ class _FancyCardState extends State<FancyCard> {
             ]),
           ),
         ),
+      ),
+    );
+  }
+}
+
+
+int parseIntAr(String s) {
+  const ar = '٠١٢٣٤٥٦٧٨٩';
+  const fa = '۰۱۲۳۴۵۶۷۸۹';
+  var t = s.trim();
+  for (int i = 0; i < 10; i++) {
+    t = t.replaceAll(ar[i], '$i').replaceAll(fa[i], '$i');
+  }
+  return int.tryParse(t) ?? 0;
+}
+
+// ===================== رسالة الإنجاز والتهنئة مع النجوم =====================
+Future<void> showCelebration(BuildContext context, String dhikr, int target,
+    {IconData particle = Icons.star_rounded, List<Color>? palette, String? title, String? body}) {
+  return showGeneralDialog(
+    context: context,
+    barrierDismissible: true,
+    barrierLabel: 'إغلاق',
+    barrierColor: Colors.black.withOpacity(0.55),
+    transitionDuration: Duration(milliseconds: 260),
+    pageBuilder: (ctx, a1, a2) => CelebrationDialog(dhikr: dhikr, target: target, particle: particle, palette: palette, title: title, body: body),
+    transitionBuilder: (ctx, a1, a2, child) => FadeTransition(
+      opacity: a1,
+      child: ScaleTransition(scale: CurvedAnimation(parent: a1, curve: Curves.easeOutBack), child: child),
+    ),
+  );
+}
+
+class _Star {
+  final double angle, dist, size, delay, spin, gravity;
+  final int color;
+  _Star(math.Random r)
+      : angle = r.nextDouble() * 2 * math.pi,
+        dist = 0.35 + r.nextDouble() * 0.65,
+        size = 12 + r.nextDouble() * 24,
+        delay = r.nextDouble() * 0.35,
+        spin = (r.nextDouble() - 0.5) * 2,
+        gravity = r.nextDouble(),
+        color = r.nextInt(4);
+}
+
+class CelebrationDialog extends StatefulWidget {
+  final String dhikr;
+  final int target;
+  final IconData particle;
+  final List<Color>? palette;
+  final String? title, body;
+  const CelebrationDialog({super.key, required this.dhikr, required this.target, this.particle = Icons.star_rounded, this.palette, this.title, this.body});
+  @override
+  State<CelebrationDialog> createState() => _CelebrationDialogState();
+}
+
+class _CelebrationDialogState extends State<CelebrationDialog> with SingleTickerProviderStateMixin {
+  late final AnimationController ctrl;
+  late final List<_Star> stars;
+
+  @override
+  void initState() {
+    super.initState();
+    final r = math.Random();
+    stars = List.generate(48, (_) => _Star(r));
+    ctrl = AnimationController(vsync: this, duration: Duration(milliseconds: 3200))..forward();
+  }
+
+  @override
+  void dispose() {
+    ctrl.dispose();
+    super.dispose();
+  }
+
+  Widget _star(_Star s, double t, double cx, double cy, double maxR, List<Color> colors) {
+    final p = ((t - s.delay) / (1 - s.delay)).clamp(0.0, 1.0).toDouble();
+    if (p <= 0) return Positioned(left: -100, top: -100, child: SizedBox.shrink());
+    final e = Curves.easeOutCubic.transform(p);
+    final x = cx + math.cos(s.angle) * s.dist * maxR * e;
+    final y = cy + math.sin(s.angle) * s.dist * maxR * e + s.gravity * p * p * 70;
+    final op = p < 0.15 ? p / 0.15 : (p > 0.7 ? (1 - p) / 0.3 : 1.0);
+    return Positioned(
+      left: x - s.size / 2,
+      top: y - s.size / 2,
+      child: Opacity(
+        opacity: op.clamp(0.0, 1.0).toDouble(),
+        child: Transform.rotate(angle: s.spin * p * 6.2832, child: Icon(widget.particle, size: s.size, color: colors[s.color])),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = widget.palette ?? [lighten(0.30), lighten(0.55), green, gold];
+    return Material(
+      type: MaterialType.transparency,
+      child: LayoutBuilder(builder: (context, box) {
+        final cx = box.maxWidth / 2;
+        final cy = box.maxHeight * 0.46;
+        final maxR = math.min(box.maxWidth, box.maxHeight) * 0.62;
+        return Stack(clipBehavior: Clip.none, children: [
+          AnimatedBuilder(
+            animation: ctrl,
+            builder: (_, __) => SizedBox.expand(
+              child: Stack(clipBehavior: Clip.none, children: [
+                for (final s in stars) _star(s, ctrl.value, cx, cy, maxR, colors),
+              ]),
+            ),
+          ),
+          Center(
+            child: Container(
+              margin: EdgeInsets.symmetric(horizontal: 28),
+              padding: EdgeInsets.fromLTRB(22, 22, 22, 18),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(begin: Alignment.topRight, end: Alignment.bottomLeft, colors: [lighten(0.10), deepGreen]),
+                borderRadius: BorderRadius.circular(28),
+                border: Border.all(color: gold, width: 2),
+                boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.4), blurRadius: 22, offset: Offset(0, 8))],
+              ),
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                Icon(widget.particle == Icons.favorite_rounded ? Icons.favorite_rounded : Icons.emoji_events_rounded, color: widget.particle == Icons.favorite_rounded ? Color(0xFFFF8FAB) : Color(0xFFE6D19A), size: 58),
+                SizedBox(height: 8),
+                Text(widget.title ?? 'ما شاء الله، أحسنت!', textAlign: TextAlign.center, style: TextStyle(color: Colors.white, fontSize: 25, fontWeight: FontWeight.bold)),
+                SizedBox(height: 10),
+                Text(
+                  widget.body ?? 'أتممت ذكر «${widget.dhikr}» بعدد ${widget.target}.',
+                  textAlign: TextAlign.center,
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: Colors.white, fontSize: 17, height: 1.7),
+                ),
+                SizedBox(height: 8),
+                Text(
+                  'تقبّل الله منك، وبارك فيك، وجعله في ميزان حسناتك.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Color(0xFFE6D19A), fontSize: 16, height: 1.7),
+                ),
+                SizedBox(height: 16),
+                FilledButton(
+                  style: FilledButton.styleFrom(backgroundColor: gold, foregroundColor: Colors.black87, padding: EdgeInsets.symmetric(horizontal: 36, vertical: 12)),
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: Text('الحمد لله', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
+                ),
+              ]),
+            ),
+          ),
+        ]);
+      }),
+    );
+  }
+}
+
+
+Widget menuRow(IconData icon, String text) => Row(mainAxisSize: MainAxisSize.min, children: [
+      Icon(icon, size: 20),
+      SizedBox(width: 12),
+      Text(text, style: TextStyle(fontSize: 15)),
+    ]);
+
+
+// ===================== رسم المسجد النبوي الشريف =====================
+class MosquePainter extends CustomPainter {
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+
+  void _minaret(Canvas c, double x, double topY, double baseY, double mw) {
+    final capBase = topY + mw * 3.2;
+    final shaft = Rect.fromLTRB(x - mw / 2, capBase, x + mw / 2, baseY);
+    c.drawRect(
+      shaft,
+      Paint()..shader = LinearGradient(colors: [Color(0xFFE2D4B0), Color(0xFFFFF6DE), Color(0xFFCDBB8E)]).createShader(shaft),
+    );
+    final ring = Paint()..color = Color(0xFFC9B27A);
+    for (final f in [0.22, 0.5]) {
+      final y = capBase + (baseY - capBase) * f;
+      c.drawRRect(RRect.fromRectAndRadius(Rect.fromCenter(center: Offset(x, y), width: mw * 2.1, height: mw * 0.7), Radius.circular(mw * 0.3)), ring);
+    }
+    final cap = Path()
+      ..moveTo(x - mw * 1.05, capBase)
+      ..quadraticBezierTo(x - mw * 1.05, capBase - mw * 2.4, x, topY)
+      ..quadraticBezierTo(x + mw * 1.05, capBase - mw * 2.4, x + mw * 1.05, capBase)
+      ..close();
+    c.drawPath(cap, Paint()..color = Color(0xFF1E8A5C));
+    final g = Paint()
+      ..color = gold
+      ..strokeWidth = mw * 0.22
+      ..style = PaintingStyle.stroke;
+    c.drawLine(Offset(x, topY), Offset(x, topY - mw * 1.5), g);
+    c.drawCircle(Offset(x, topY - mw * 1.9), mw * 0.45, g);
+  }
+
+  @override
+  void paint(Canvas c, Size size) {
+    final w = size.width, h = size.height;
+    final full = Rect.fromLTWH(0, 0, w, h);
+
+    // السماء
+    c.drawRect(
+      full,
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Color(0xFF0B1F3A), Color(0xFF1B4F72), Color(0xFFF2C879)],
+          stops: [0.0, 0.55, 1.0],
+        ).createShader(full),
+    );
+    // النجوم
+    final rnd = math.Random(7);
+    final starPaint = Paint()..color = Colors.white.withOpacity(0.85);
+    for (int i = 0; i < 40; i++) {
+      c.drawCircle(Offset(rnd.nextDouble() * w, rnd.nextDouble() * h * 0.45), rnd.nextDouble() * 1.2 + 0.4, starPaint);
+    }
+    // الهلال
+    final moonC = Offset(w * 0.84, h * 0.15);
+    final r = h * 0.07;
+    final moon = Path.combine(
+      PathOperation.difference,
+      Path()..addOval(Rect.fromCircle(center: moonC, radius: r)),
+      Path()..addOval(Rect.fromCircle(center: moonC.translate(r * 0.45, -r * 0.15), radius: r * 0.85)),
+    );
+    c.drawPath(moon, Paint()..color = Color(0xFFFFF3C4));
+
+    // توهج خلف القبة
+    final domeC = Offset(w * 0.5, h * 0.42);
+    c.drawCircle(
+      domeC,
+      w * 0.34,
+      Paint()..shader = RadialGradient(colors: [Color(0x66FFE9A8), Color(0x00FFE9A8)]).createShader(Rect.fromCircle(center: domeC, radius: w * 0.34)),
+    );
+
+    final y0 = h * 0.80;
+
+    // المآذن العالية (خلف المبنى)
+    for (final x in [0.055, 0.15, 0.85, 0.945]) {
+      _minaret(c, w * x, h * 0.13, y0, w * 0.022);
+    }
+    // مئذنتان متوسطتان
+    for (final x in [0.30, 0.70]) {
+      _minaret(c, w * x, h * 0.30, h * 0.56, w * 0.018);
+    }
+
+    // رقبة القبة الخضراء
+    final cx = w * 0.5;
+    final drum = Rect.fromLTRB(cx - w * 0.085, h * 0.46, cx + w * 0.085, h * 0.565);
+    c.drawRect(drum, Paint()..shader = LinearGradient(colors: [Color(0xFFE2D4B0), Color(0xFFFFF4D8), Color(0xFFD0BE92)]).createShader(drum));
+    for (int i = 0; i < 3; i++) {
+      final wx = cx - w * 0.05 + i * w * 0.05;
+      c.drawRRect(
+        RRect.fromRectAndRadius(Rect.fromCenter(center: Offset(wx, h * 0.51), width: w * 0.018, height: h * 0.05), Radius.circular(w * 0.009)),
+        Paint()..color = Color(0xFF3C6E57),
+      );
+    }
+    // القبة الخضراء
+    final R = w * 0.12;
+    final domeRect = Rect.fromCenter(center: Offset(cx, h * 0.46), width: 2 * R, height: 2 * R * 1.12);
+    final dome = Path()
+      ..addArc(domeRect, math.pi, math.pi)
+      ..close();
+    c.drawPath(
+      dome,
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF5BC08F), Color(0xFF1E8A5C), Color(0xFF0C5236)],
+        ).createShader(domeRect),
+    );
+    c.drawArc(
+      Rect.fromCenter(center: Offset(cx, h * 0.46), width: 2 * R * 0.8, height: 2 * R * 1.12 * 0.8),
+      math.pi * 1.1,
+      math.pi * 0.35,
+      false,
+      Paint()
+        ..color = Colors.white.withOpacity(0.28)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3
+        ..strokeCap = StrokeCap.round,
+    );
+    c.drawRect(Rect.fromLTRB(cx - R, h * 0.455, cx + R, h * 0.47), Paint()..color = Color(0xFFC9B27A));
+    // هلال القبة
+    final topY = h * 0.46 - R * 1.12;
+    final goldLine = Paint()
+      ..color = gold
+      ..strokeWidth = 2.2
+      ..style = PaintingStyle.stroke;
+    c.drawLine(Offset(cx, topY), Offset(cx, topY - h * 0.05), goldLine);
+    c.drawCircle(Offset(cx, topY - h * 0.065), w * 0.011, goldLine);
+    c.drawCircle(Offset(cx, topY - h * 0.088), w * 0.006, Paint()..color = gold);
+
+    // المبنى
+    final b = Rect.fromLTRB(w * 0.10, h * 0.56, w * 0.90, y0);
+    c.drawRect(
+      b,
+      Paint()..shader = LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Color(0xFFF7EBCB), Color(0xFFD8C694)]).createShader(b),
+    );
+    c.drawRect(Rect.fromLTRB(w * 0.09, h * 0.55, w * 0.91, h * 0.565), Paint()..color = Color(0xFFC9B27A));
+
+    // قباب صغيرة على السطح
+    final domePaint = Paint()..color = Color(0xFFF4EBD3);
+    final domeLine = Paint()
+      ..color = Color(0xFFB9A574)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.2;
+    for (final x in [0.22, 0.34, 0.66, 0.78]) {
+      final rect = Rect.fromCircle(center: Offset(w * x, h * 0.55), radius: w * 0.045);
+      c.drawArc(rect, math.pi, math.pi, true, domePaint);
+      c.drawArc(rect, math.pi, math.pi, true, domeLine);
+    }
+
+    // أقواس الواجهة المضيئة
+    const n = 9;
+    final aw = (w * 0.80 / n) * 0.55;
+    for (int i = 0; i < n; i++) {
+      final ax = w * 0.10 + (w * 0.80) * (i + 0.5) / n;
+      final top = h * 0.62;
+      final bottom = y0 - h * 0.006;
+      final arch = Path()
+        ..moveTo(ax - aw / 2, bottom)
+        ..lineTo(ax - aw / 2, top + aw / 2)
+        ..arcTo(Rect.fromCenter(center: Offset(ax, top + aw / 2), width: aw, height: aw), math.pi, math.pi, false)
+        ..lineTo(ax + aw / 2, bottom)
+        ..close();
+      c.drawPath(arch, Paint()..color = Color(0xFFFFD98A));
+      c.drawPath(
+        arch,
+        Paint()
+          ..color = Color(0xFF8D6E3F)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.4,
+      );
+    }
+
+    // الساحة
+    final g = Rect.fromLTRB(0, y0, w, h);
+    c.drawRect(g, Paint()..shader = LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Color(0xFFEBDDB4), Color(0xFFC8B27C)]).createShader(g));
+    final lp = Paint()
+      ..color = Color(0x33806A3C)
+      ..strokeWidth = 1;
+    for (int i = 1; i < 5; i++) {
+      final y = y0 + (h - y0) * i / 5;
+      c.drawLine(Offset(0, y), Offset(w, y), lp);
+    }
+    for (int i = -6; i <= 6; i++) {
+      c.drawLine(Offset(w / 2 + i * w * 0.05, y0), Offset(w / 2 + i * w * 0.16, h), lp);
+    }
+  }
+}
+
+
+// ===================== الصناديق المزخرفة ذات العدد =====================
+const Map<String, int> _countWords = {
+  'ثلاث': 3, 'ثلاثا': 3, 'ثلاثه': 3,
+  'سبع': 7, 'سبعا': 7, 'سبعه': 7,
+  'واحد وعشرين': 21, 'واحدا وعشرين': 21, 'احد وعشرين': 21, 'احدي وعشرين': 21,
+  'واحد وعشرون': 21, 'احدي وعشرون': 21,
+};
+const Set<int> _allowedCounts = {3, 7, 21};
+
+String _normForCount(String s) => stripTashkeel(s)
+    .replaceAll('\u0640', '')
+    .replaceAll(RegExp('[\u0623\u0625\u0622\u0671]'), '\u0627')
+    .replaceAll('\u0629', '\u0647')
+    .replaceAll('\u0649', '\u064A');
+
+// يفهم نص العدد: "سبعاً" / "ثلاث مرات" / "7 مرات" / "إحدى وعشرين مرة"، ولا يقبل إلا 3 أو 7 أو 21
+int? _countFromText(String raw) {
+  final w0 = _normForCount(raw).trim();
+  final dm = RegExp('^([0-9\u0660-\u0669]+)\\s*(\u0645\u0631\u0627\u062A|\u0645\u0631\u0647)\$').firstMatch(w0);
+  if (dm != null) {
+    final v = parseIntAr(dm.group(1)!);
+    if (_allowedCounts.contains(v)) return v;
+  }
+  final w = w0.replaceAll('\u0645\u0631\u0627\u062A', ' ').replaceAll(RegExp(r'\s+'), ' ').trim();
+  if (_countWords.containsKey(w)) return _countWords[w];
+  final w2 = w.replaceFirst(RegExp('\\s+\u0645\u0631\u0647\$'), '').trim();
+  if (w2 != w && _countWords.containsKey(w2)) return _countWords[w2];
+  return null;
+}
+
+class CountSplit {
+  final int target;
+  final String head; // الجزء الذي ينتهي بالعدد (يدخل في الصندوق)
+  final String rest; // ما بعد العدد في نفس السطر (يظهر خارج الصندوق)، وقد يكون فارغاً
+  const CountSplit(this.target, this.head, this.rest);
+}
+
+// لو الفقرة فيها عدد (3 أو 7 أو 21) بين قوسين، أو "21 مرة" في آخرها، يُرجع تفاصيله، وإلا null.
+// أرقام الآيات مثل (1) لا تُعدّ، لأنها بلا كلمة "مرات".
+CountSplit? splitCount(String paragraph) {
+  for (final m in RegExp('[\\(\uFF08]([^\\)\uFF09]{1,40})[\\)\uFF09]').allMatches(paragraph)) {
+    final v = _countFromText(m.group(1)!);
+    if (v != null) {
+      return CountSplit(v, paragraph.substring(0, m.end).trim(), paragraph.substring(m.end).trim());
+    }
+  }
+  final n = _normForCount(paragraph).trimRight();
+  final em = RegExp('([0-9\u0660-\u0669]+)\\s*(\u0645\u0631\u0627\u062A|\u0645\u0631\u0647)\$').firstMatch(n);
+  if (em != null) {
+    final v = parseIntAr(em.group(1)!);
+    if (_allowedCounts.contains(v)) return CountSplit(v, paragraph.trim(), '');
+  }
+  return null;
+}
+
+int? countTarget(String paragraph) => splitCount(paragraph)?.target;
+
+// سطر قصير يسبق فقرة العدد مباشرة (بسملة أو عنوان مثل "آية الكرسي") فيدخل معها في نفس الصندوق
+bool isCountLeadIn(String line) {
+  final n = _normForCount(line).replaceAll(RegExp('[^\u0621-\u064A ]'), ' ').replaceAll(RegExp(r'\s+'), ' ').trim();
+  if (n.isEmpty) return false;
+  if (n == 'بسم الله الرحمن الرحيم') return true;
+  if (n.startsWith('\u062D\u0631\u0641')) return false; // عناوين "حرف ..."
+  return n.split(' ').length <= 3;
+}
+
+class CountBox extends StatelessWidget {
+  final Widget child;
+  final int count, target;
+  final VoidCallback onTap, onReset;
+  const CountBox({super.key, required this.child, required this.count, required this.target, required this.onTap, required this.onReset});
+
+  Widget _corner() => Transform.rotate(angle: 0.785398, child: Container(width: 8, height: 8, color: gold));
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = isDark(context);
+    final done = count >= target;
+    const okGreen = Color(0xFF2E9B5F);
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: Padding(
+        padding: EdgeInsets.symmetric(vertical: 10, horizontal: 2),
+        child: Stack(clipBehavior: Clip.none, children: [
+          Container(
+            padding: EdgeInsets.all(4),
+            decoration: BoxDecoration(
+              color: done ? gold.withOpacity(dark ? 0.16 : 0.18) : (dark ? Color(0x14FFFFFF) : tint(0.06)),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: done ? gold : gold.withOpacity(0.75), width: done ? 2.2 : 1.6),
+            ),
+            child: Container(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: gold.withOpacity(0.5), width: 1),
+              ),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                Padding(
+                  padding: EdgeInsets.fromLTRB(10, 8, 10, 0),
+                  child: Row(children: [
+                    Container(
+                      padding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: done ? okGreen : gold.withOpacity(0.18),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: done ? okGreen : gold.withOpacity(0.8)),
+                      ),
+                      child: Row(mainAxisSize: MainAxisSize.min, children: [
+                        Icon(done ? Icons.check_circle : Icons.touch_app, size: 20, color: done ? Colors.white : accent(context)),
+                        SizedBox(width: 6),
+                        Text(
+                          done ? 'تم  $target / $target' : '$count / $target',
+                          style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: done ? Colors.white : accent(context)),
+                        ),
+                      ]),
+                    ),
+                    SizedBox(width: 10),
+                    if (count == 0)
+                      Expanded(child: Text('اضغط على الصندوق للعدّ', style: TextStyle(fontSize: 12, color: ink(context).withOpacity(0.6))))
+                    else
+                      Spacer(),
+                    if (count > 0)
+                      InkWell(
+                        onTap: onReset,
+                        customBorder: CircleBorder(),
+                        child: Padding(padding: EdgeInsets.all(6), child: Icon(Icons.restart_alt, size: 22, color: ink(context).withOpacity(0.65))),
+                      ),
+                  ]),
+                ),
+                Padding(padding: EdgeInsets.fromLTRB(12, 4, 12, 6), child: child),
+              ]),
+            ),
+          ),
+          Positioned(top: -3, right: -3, child: _corner()),
+          Positioned(top: -3, left: -3, child: _corner()),
+          Positioned(bottom: -3, right: -3, child: _corner()),
+          Positioned(bottom: -3, left: -3, child: _corner()),
+        ]),
       ),
     );
   }
