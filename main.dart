@@ -399,7 +399,7 @@ class _HomeShellState extends State<HomeShell> {
           margin: EdgeInsets.fromLTRB(10, 6, 10, 12),
           height: 96,
           decoration: BoxDecoration(
-            gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: dark ? [deepGreen, deepDark] : [green, deepGreen]),
+            gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: dark ? [deepGreen, deepDark2] : [green, deepGreen2]),
             borderRadius: barRadius,
             border: Border.all(color: gold.withOpacity(0.6), width: 1.2),
             boxShadow: [
@@ -578,7 +578,7 @@ class _HomeHeroState extends State<_HomeHero> {
     final radius = BorderRadius.vertical(bottom: Radius.circular(38));
     return Container(
       decoration: BoxDecoration(
-        gradient: LinearGradient(begin: Alignment.topRight, end: Alignment.bottomLeft, colors: dark ? [deepDark, deepGreen] : [deepGreen, green]),
+        gradient: LinearGradient(begin: Alignment.topRight, end: Alignment.bottomLeft, colors: dark ? [deepDark, deepGreen2] : [deepGreen, green2]),
         borderRadius: radius,
         boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.25), blurRadius: 20, offset: Offset(0, 8))],
       ),
@@ -822,7 +822,7 @@ class _QuickTileState extends State<_QuickTile> {
                     width: 54,
                     height: 54,
                     decoration: BoxDecoration(
-                      gradient: LinearGradient(begin: Alignment.topRight, end: Alignment.bottomLeft, colors: [lighten(0.12), deepGreen]),
+                      gradient: LinearGradient(begin: Alignment.topRight, end: Alignment.bottomLeft, colors: [lighten(0.12), deepGreen2]),
                       borderRadius: BorderRadius.circular(17),
                       border: Border.all(color: gold, width: 1.5),
                       boxShadow: [BoxShadow(color: green.withOpacity(0.35), blurRadius: 8, offset: Offset(0, 3))],
@@ -1089,13 +1089,13 @@ class _TextReaderPageState extends State<TextReaderPage> {
     );
   }
 
-  // المسبعات: تصفير كل الصناديق لبدء قراءة جديدة تُحسب من جديد
+  // تصفير كل الصناديق والرجوع لأول النص لبدء قراءة جديدة تُحسب من جديد
   Future<void> _newRound() async {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text('بدء قراءة جديدة؟'),
-        content: Text('سيتم تصفير عدّ كل الصناديق، والقراءة السابقة تبقى محفوظة في سجل الإنجازات.'),
+        content: Text(_boxTargets.isEmpty ? 'سيبدأ النص من أوله لقراءة جديدة، والقراءة السابقة تبقى محفوظة في سجل الإنجازات.' : 'سيتم تصفير عدّ كل الصناديق، والقراءة السابقة تبقى محفوظة في سجل الإنجازات.'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text('إلغاء')),
           FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text('ابدئي')),
@@ -1108,26 +1108,41 @@ class _TextReaderPageState extends State<TextReaderPage> {
       await p.remove(_tkey(k));
     }
     if (!mounted) return;
+    _stopAuto();
     setState(() {
       tcounts.clear();
       _roundLogged = false;
     });
+    if (sc.hasClients) sc.animateTo(0, duration: Duration(milliseconds: 500), curve: Curves.easeOutCubic);
   }
 
   Widget _finishButton() => Padding(
         padding: EdgeInsets.fromLTRB(8, 18, 8, 10),
-        child: FilledButton.icon(
-          style: FilledButton.styleFrom(
-            backgroundColor: gold,
-            foregroundColor: Colors.black87,
-            disabledBackgroundColor: green.withOpacity(0.6),
-            disabledForegroundColor: Colors.white,
-            padding: EdgeInsets.symmetric(vertical: 14),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          FilledButton.icon(
+            style: FilledButton.styleFrom(
+              backgroundColor: gold,
+              foregroundColor: Colors.black87,
+              disabledBackgroundColor: green.withOpacity(0.6),
+              disabledForegroundColor: Colors.white,
+              padding: EdgeInsets.symmetric(vertical: 14),
+            ),
+            onPressed: _roundLogged ? null : _finishReading,
+            icon: Icon(_roundLogged ? Icons.check_circle : Icons.favorite),
+            label: Text(_roundLogged ? 'تم تسجيل هذه القراءة' : 'أتممت القراءة', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
           ),
-          onPressed: _roundLogged ? null : _finishReading,
-          icon: Icon(_roundLogged ? Icons.check_circle : Icons.favorite),
-          label: Text(_roundLogged ? 'تم تسجيل هذه القراءة' : 'أتممت القراءة', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
-        ),
+          SizedBox(height: 10),
+          OutlinedButton.icon(
+            style: OutlinedButton.styleFrom(
+              foregroundColor: accent(context),
+              side: BorderSide(color: gold, width: 1.4),
+              padding: EdgeInsets.symmetric(vertical: 14),
+            ),
+            onPressed: _newRound,
+            icon: Icon(Icons.replay),
+            label: Text('ابدأ من جديد', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
+          ),
+        ]),
       );
 
   Future<void> _resetCount(int idx) async {
@@ -1275,8 +1290,7 @@ class _TextReaderPageState extends State<TextReaderPage> {
     final appBar = AppBar(
       title: Text(widget.title),
       actions: [
-        if (_autoByBoxes)
-          IconButton(tooltip: 'قراءة جديدة', icon: Icon(Icons.replay), onPressed: _newRound),
+        IconButton(tooltip: 'ابدأ من جديد', icon: Icon(Icons.replay), onPressed: _newRound),
         IconButton(
           tooltip: 'تمرير تلقائي',
           icon: Icon(auto ? Icons.pause_circle_filled : Icons.play_circle_outline),
@@ -2549,7 +2563,7 @@ class _ClockCardState extends State<ClockCard> {
       width: double.infinity,
       padding: EdgeInsets.symmetric(horizontal: 20, vertical: 26),
       decoration: BoxDecoration(
-        gradient: LinearGradient(colors: [deepGreen, green]),
+        gradient: LinearGradient(colors: [deepGreen, green2]),
         borderRadius: BorderRadius.circular(24),
         border: Border.all(color: gold),
       ),
@@ -3054,9 +3068,13 @@ Widget hiText(BuildContext context, String line, TextStyle st) {
 // ===================== ألوان التطبيق =====================
 class PaletteColor {
   final String name;
-  final Color color;
-  const PaletteColor(this.name, this.color);
+  final Color color; // اللون الأساسي للتطبيق كله
+  final Color? color2; // لون ثانٍ يتداخل مع الأول في التدرّجات (الهيدر والبطاقات) — للألوان المتداخلة
+  const PaletteColor(this.name, this.color, [this.color2]);
 }
+
+// عدد الألوان المفردة؛ ما بعدها ألوان متداخلة (تُضاف في آخر القائمة كي لا يتغيّر ترتيب اللون المحفوظ)
+const int singlePaletteCount = 16;
 
 const List<PaletteColor> palettes = [
   PaletteColor('أخضر زمردي', Color(0xFF176B50)),
@@ -3075,6 +3093,21 @@ const List<PaletteColor> palettes = [
   PaletteColor('بني', Color(0xFF6B4423)),
   PaletteColor('رمادي فحمي', Color(0xFF3F4B52)),
   PaletteColor('أسود', Color(0xFF1B1B1B)),
+  // ===== ألوان متداخلة (لونان يمتزجان) =====
+  PaletteColor('زمرد وذهب', Color(0xFF176B50), Color(0xFFB8860B)),
+  PaletteColor('زمرد وفيروزي', Color(0xFF176B50), Color(0xFF1E88C7)),
+  PaletteColor('أزرق وفيروزي', Color(0xFF1F4E9C), Color(0xFF0F9FA8)),
+  PaletteColor('فجر', Color(0xFF1F4E9C), Color(0xFFC2417A)),
+  PaletteColor('بنفسجي ووردي', Color(0xFF6A3FA0), Color(0xFFC2417A)),
+  PaletteColor('نيلي وأرجواني', Color(0xFF3F3D9E), Color(0xFF9C2F7F)),
+  PaletteColor('غروب', Color(0xFF7B1E3A), Color(0xFFD2691E)),
+  PaletteColor('وردي وبرتقالي', Color(0xFFC2417A), Color(0xFFD2691E)),
+  PaletteColor('عنابي وبنفسجي', Color(0xFF7B1E3A), Color(0xFF4A2A7A)),
+  PaletteColor('بني وذهبي', Color(0xFF6B4423), Color(0xFFA67C1E)),
+  PaletteColor('زيتوني وذهبي', Color(0xFF5B7B2A), Color(0xFFA67C1E)),
+  PaletteColor('فحمي وفيروزي', Color(0xFF3F4B52), Color(0xFF0F7C86)),
+  PaletteColor('ليل وسماوي', Color(0xFF1A2A6C), Color(0xFF1E88C7)),
+  PaletteColor('أخضر وزيتوني', Color(0xFF176B50), Color(0xFF5B7B2A)),
 ];
 
 final ValueNotifier<int> paletteIdx = ValueNotifier<int>(0);
@@ -3086,6 +3119,15 @@ Color get deepGreen {
 }
 
 Color get deepDark => Color.alphaBlend(Colors.black.withOpacity(0.45), deepGreen);
+
+// اللون الثاني للألوان المتداخلة (للألوان المفردة يساوي الأساسي، فلا يتغيّر شيء)
+Color get green2 => palettes[paletteIdx.value.clamp(0, palettes.length - 1).toInt()].color2 ?? green;
+Color get deepGreen2 {
+  final h = HSLColor.fromColor(green2);
+  return h.withLightness((h.lightness * 0.62).clamp(0.04, 1.0).toDouble()).toColor();
+}
+
+Color get deepDark2 => Color.alphaBlend(Colors.black.withOpacity(0.45), deepGreen2);
 Color get inkLight => Color.alphaBlend(Colors.black.withOpacity(0.72), green);
 Color tint(double a) => Color.alphaBlend(green.withOpacity(a), Colors.white);
 Color darkTint(double a) => Color.alphaBlend(green.withOpacity(a), Color(0xFF0C0F0E));
@@ -3111,6 +3153,49 @@ Future<void> setPalette(int i) async {
 class ThemeColorsPage extends StatelessWidget {
   const ThemeColorsPage({super.key});
 
+  Widget _swatch(int i, int sel) {
+    final pc = palettes[i];
+    final on = sel == i;
+    return GestureDetector(
+      onTap: () => setPalette(i),
+      child: Container(
+        decoration: BoxDecoration(
+          color: pc.color,
+          gradient: pc.color2 == null ? null : LinearGradient(begin: Alignment.topRight, end: Alignment.bottomLeft, colors: [pc.color, Color.lerp(pc.color, pc.color2, 0.5)!, pc.color2!]),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: on ? gold : Color(0x33FFFFFF), width: on ? 3.5 : 1),
+          boxShadow: on ? [BoxShadow(color: gold.withOpacity(0.45), blurRadius: 10)] : null,
+        ),
+        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+          Icon(on ? Icons.check_circle : Icons.circle_outlined, color: Colors.white, size: 28),
+          SizedBox(height: 6),
+          Text(pc.name, textAlign: TextAlign.center, style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600, shadows: [Shadow(color: Colors.black.withOpacity(0.35), blurRadius: 3)])),
+        ]),
+      ),
+    );
+  }
+
+  Widget _grid(int from, int to, int sel) => GridView.count(
+        shrinkWrap: true,
+        physics: NeverScrollableScrollPhysics(),
+        crossAxisCount: 3,
+        mainAxisSpacing: 12,
+        crossAxisSpacing: 12,
+        childAspectRatio: 1.15,
+        children: [for (int i = from; i < to; i++) _swatch(i, sel)],
+      );
+
+  Widget _sectionTitle(BuildContext context, String t) => Padding(
+        padding: EdgeInsets.fromLTRB(0, 20, 0, 12),
+        child: Row(children: [
+          Expanded(child: Container(height: 1.2, color: gold.withOpacity(0.55))),
+          SizedBox(width: 10),
+          Text(t, style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: accent(context))),
+          SizedBox(width: 10),
+          Expanded(child: Container(height: 1.2, color: gold.withOpacity(0.55))),
+        ]),
+      );
+
   @override
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(title: Text('ألوان التطبيق')),
@@ -3119,32 +3204,9 @@ class ThemeColorsPage extends StatelessWidget {
           builder: (context, sel, _) => ListView(padding: EdgeInsets.all(16), children: [
             Text('اختر اللون المفضل، وسيتغير لون التطبيق كله فوراً.', textAlign: TextAlign.center, style: TextStyle(fontSize: 15, height: 1.7)),
             SizedBox(height: 14),
-            GridView.count(
-              shrinkWrap: true,
-              physics: NeverScrollableScrollPhysics(),
-              crossAxisCount: 3,
-              mainAxisSpacing: 12,
-              crossAxisSpacing: 12,
-              childAspectRatio: 1.15,
-              children: [
-                for (int i = 0; i < palettes.length; i++)
-                  GestureDetector(
-                    onTap: () => setPalette(i),
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: palettes[i].color,
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(color: sel == i ? gold : Color(0x33FFFFFF), width: sel == i ? 3.5 : 1),
-                      ),
-                      child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                        Icon(sel == i ? Icons.check_circle : Icons.circle_outlined, color: Colors.white, size: 28),
-                        SizedBox(height: 6),
-                        Text(palettes[i].name, style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600)),
-                      ]),
-                    ),
-                  ),
-              ],
-            ),
+            _grid(0, singlePaletteCount, sel),
+            _sectionTitle(context, 'ألوان متداخلة'),
+            _grid(singlePaletteCount, palettes.length, sel),
           ]),
         ),
       );
@@ -3689,7 +3751,7 @@ class _FancyCardState extends State<FancyCard> {
                     width: 62,
                     height: 62,
                     decoration: BoxDecoration(
-                      gradient: LinearGradient(begin: Alignment.topRight, end: Alignment.bottomLeft, colors: [lighten(0.12), deepGreen]),
+                      gradient: LinearGradient(begin: Alignment.topRight, end: Alignment.bottomLeft, colors: [lighten(0.12), deepGreen2]),
                       borderRadius: BorderRadius.circular(19),
                       border: Border.all(color: gold, width: 1.6),
                       boxShadow: [BoxShadow(color: green.withOpacity(0.35), blurRadius: 8, offset: Offset(0, 3))],
@@ -3835,7 +3897,7 @@ class _CelebrationDialogState extends State<CelebrationDialog> with SingleTicker
               margin: EdgeInsets.symmetric(horizontal: 28),
               padding: EdgeInsets.fromLTRB(22, 22, 22, 18),
               decoration: BoxDecoration(
-                gradient: LinearGradient(begin: Alignment.topRight, end: Alignment.bottomLeft, colors: [lighten(0.10), deepGreen]),
+                gradient: LinearGradient(begin: Alignment.topRight, end: Alignment.bottomLeft, colors: [lighten(0.10), deepGreen2]),
                 borderRadius: BorderRadius.circular(28),
                 border: Border.all(color: gold, width: 2),
                 boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.4), blurRadius: 22, offset: Offset(0, 8))],
@@ -4128,114 +4190,348 @@ CountSplit? splitCount(String paragraph) {
 
 int? countTarget(String paragraph) => splitCount(paragraph)?.target;
 
-// ===== زخارف صناديق العدّ =====
-// وردة ثمانية البتلات
-void _drawRosette(Canvas c, Offset o, double r, Color petal, Color core) {
-  final p = Paint()..color = petal;
-  for (int k = 0; k < 8; k++) {
-    final a = k * math.pi / 4;
-    c.drawCircle(o + Offset(math.cos(a), math.sin(a)) * (r * 0.62), r * 0.34, p);
+// ===== زخارف صناديق العدّ (تصميم جديد: مشربية خاتم سليماني + خرز مسبحة + إطار أرابيسك) =====
+// نجمة ثمانية (رُبع الحزب): مربعان متداخلان
+Path _starPath(Offset c, double R, [double inner = 0.765]) {
+  final path = Path();
+  for (int k = 0; k < 16; k++) {
+    final r = k.isEven ? R : R * inner;
+    final a = -math.pi / 2 + k * math.pi / 8;
+    final pt = Offset(c.dx + r * math.cos(a), c.dy + r * math.sin(a));
+    if (k == 0) {
+      path.moveTo(pt.dx, pt.dy);
+    } else {
+      path.lineTo(pt.dx, pt.dy);
+    }
   }
-  c.drawCircle(o, r * 0.40, Paint()..color = core);
+  path.close();
+  return path;
 }
 
-class _RosettePainter extends CustomPainter {
-  final Color petal, core;
-  _RosettePainter(this.petal, this.core);
+// معيّن صغير
+Path _diamondPath(Offset o, double r) => Path()
+  ..moveTo(o.dx, o.dy - r)
+  ..lineTo(o.dx + r, o.dy)
+  ..lineTo(o.dx, o.dy + r)
+  ..lineTo(o.dx - r, o.dy)
+  ..close();
+
+// ميدالية مزخرفة: حلقة خرز بعدد المطلوب (كل ضغطة تُضيء حبة) + نجمة تمتلئ بالنور
+class _StarMedallionPainter extends CustomPainter {
+  final double progress;
+  final Color fill, orn;
+  final bool done;
+  final int count, target;
+  _StarMedallionPainter(this.progress, this.fill, this.orn, this.done, this.count, this.target);
+
   @override
   void paint(Canvas c, Size s) {
-    final o = s.center(Offset.zero);
-    c.drawCircle(o, s.width / 2, Paint()..color = Colors.white.withOpacity(0.9));
-    _drawRosette(c, o, s.width / 2 - 1.5, petal, core);
+    final ctr = s.center(Offset.zero);
+    final outer = s.width / 2 - 1;
+    final ringR = outer - 5.5; // نصف قطر حلقة الخرز
+    final R = ringR - 9; // نصف قطر النجمة
+
+    // وهج خارجي
+    c.drawCircle(ctr, outer, Paint()
+      ..color = fill.withOpacity(done ? 0.55 : 0.28)
+      ..maskFilter = MaskFilter.blur(BlurStyle.normal, done ? 9 : 6));
+
+    // قرص داكن + حلقتان ذهبيتان
+    c.drawCircle(ctr, outer - 1, Paint()..color = Color.lerp(fill, Colors.black, 0.70)!);
+    c.drawCircle(ctr, outer - 1, Paint()
+      ..shader = SweepGradient(colors: [orn, Colors.white.withOpacity(0.9), orn, Color.lerp(orn, Colors.black, 0.35)!, orn]).createShader(Rect.fromCircle(center: ctr, radius: outer))
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.0);
+    c.drawCircle(ctr, ringR - 5.2, Paint()
+      ..color = orn.withOpacity(0.55)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 0.8);
+
+    // حلقة الخرز: عدد الحبات = العدد المطلوب، وتُضاء بقدر ما عُدّ
+    final n = target.clamp(1, 60).toInt();
+    final br = n <= 7 ? 3.6 : (n <= 21 ? 2.5 : 1.8);
+    for (int i = 0; i < n; i++) {
+      final a = -math.pi / 2 + i * 2 * math.pi / n;
+      final o = Offset(ctr.dx + ringR * math.cos(a), ctr.dy + ringR * math.sin(a));
+      final lit = i < count || done;
+      if (lit) {
+        c.drawCircle(o, br + 1.6, Paint()
+          ..color = orn.withOpacity(0.55)
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, 2.5));
+        c.drawCircle(o, br, Paint()
+          ..shader = RadialGradient(center: Alignment(-0.4, -0.4), colors: [Colors.white, orn, Color.lerp(orn, Colors.black, 0.3)!]).createShader(Rect.fromCircle(center: o, radius: br)));
+      } else {
+        c.drawCircle(o, br, Paint()..color = Colors.black.withOpacity(0.45));
+        c.drawCircle(o, br, Paint()
+          ..color = orn.withOpacity(0.50)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 0.9);
+      }
+    }
+
+    // النجمة وفيها تعبئة نورانية صاعدة
+    final star = _starPath(ctr, R);
+    c.drawPath(star, Paint()..color = Color.lerp(fill, Colors.black, 0.45)!);
+    c.save();
+    c.clipPath(star);
+    final pr = progress.clamp(0.0, 1.0).toDouble();
+    final top = ctr.dy + R - 2 * R * pr;
+    final rect = Rect.fromLTRB(0, top, s.width, s.height);
+    c.drawRect(rect, Paint()..shader = LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Color.lerp(fill, Colors.white, 0.40)!, fill]).createShader(rect));
+    if (pr > 0 && pr < 1) {
+      c.drawLine(Offset(0, top), Offset(s.width, top), Paint()
+        ..color = Colors.white.withOpacity(0.65)
+        ..strokeWidth = 1.3);
+    }
+    c.restore();
+    // نجمة داخلية رفيعة (وردة) ودائرة مركزية
+    c.drawPath(_starPath(ctr, R * 0.62, 0.6), Paint()
+      ..color = Colors.white.withOpacity(0.30)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 0.8);
+    c.drawPath(star, Paint()
+      ..color = orn
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.9
+      ..strokeJoin = StrokeJoin.round);
+    for (int k = 0; k < 8; k++) {
+      final a = -math.pi / 2 + k * math.pi / 4;
+      c.drawCircle(Offset(ctr.dx + R * math.cos(a), ctr.dy + R * math.sin(a)), 1.6, Paint()..color = Colors.white);
+    }
   }
 
   @override
-  bool shouldRepaint(covariant _RosettePainter old) => old.petal != petal || old.core != core;
+  bool shouldRepaint(covariant _StarMedallionPainter old) =>
+      old.progress != progress || old.fill != fill || old.orn != orn || old.done != done || old.count != count || old.target != target;
 }
 
-// شبكة دوائر متداخلة خفيفة (نمط إسلامي كلاسيكي) كخلفية
-class _LatticePainter extends CustomPainter {
+// نمط «الخاتم السليماني»: نجوم ثمانية متراصّة بشكل المشربية الإسلامية، وبينها معيّنات صغيرة
+class _TrellisPainter extends CustomPainter {
   final Color color;
-  _LatticePainter(this.color);
+  _TrellisPainter(this.color);
   @override
   void paint(Canvas c, Size s) {
-    const r = 17.0;
-    final p = Paint()
+    const cell = 34.0;
+    final line = Paint()
       ..color = color
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 0.9;
-    for (double y = 0; y <= s.height + r; y += r) {
-      for (double x = 0; x <= s.width + r; x += r) {
-        c.drawCircle(Offset(x, y), r, p);
+      ..strokeWidth = 0.8
+      ..strokeJoin = StrokeJoin.round;
+    final dot = Paint()..color = color.withOpacity(math.min(1.0, color.opacity * 2.4));
+    int row = 0;
+    for (double y = 0; y <= s.height + cell; y += cell / 2) {
+      final shift = row.isEven ? 0.0 : cell / 2;
+      for (double x = -cell; x <= s.width + cell; x += cell) {
+        final o = Offset(x + shift, y);
+        c.drawPath(_starPath(o, cell * 0.36), line);
+        c.drawCircle(o, 1.3, dot);
+      }
+      row++;
+    }
+    // معيّنات صغيرة عند نقاط التقاء النجوم
+    for (double y = cell / 4; y <= s.height + cell; y += cell / 2) {
+      for (double x = cell / 4; x <= s.width + cell; x += cell / 2) {
+        c.drawPath(_diamondPath(Offset(x, y), 1.6), dot);
       }
     }
   }
 
   @override
-  bool shouldRepaint(covariant _LatticePainter old) => old.color != color;
+  bool shouldRepaint(covariant _TrellisPainter old) => old.color != color;
 }
 
-// إطار مزدوج بزوايا مقعّرة مع وردة في كل زاوية وفصوص في المنتصف
-class _BoxFramePainter extends CustomPainter {
-  final Color color, accent;
-  _BoxFramePainter(this.color, this.accent);
+// إطار أرابيسك: حدّ ذهبي متدرّج + خط داخلي + شريط لآلئ + وردة بأوراق وسَعَفات في كل ركن
+class _OrnateFramePainter extends CustomPainter {
+  final Color orn;
+  final bool done;
+  _OrnateFramePainter(this.orn, this.done);
 
-  Path _frame(Size s, double inset, double cut) {
-    final r = Rect.fromLTWH(inset, inset, s.width - 2 * inset, s.height - 2 * inset);
-    final rad = Radius.circular(cut);
-    return Path()
-      ..moveTo(r.left + cut, r.top)
-      ..lineTo(r.right - cut, r.top)
-      ..arcToPoint(Offset(r.right, r.top + cut), radius: rad, clockwise: false)
-      ..lineTo(r.right, r.bottom - cut)
-      ..arcToPoint(Offset(r.right - cut, r.bottom), radius: rad, clockwise: false)
-      ..lineTo(r.left + cut, r.bottom)
-      ..arcToPoint(Offset(r.left, r.bottom - cut), radius: rad, clockwise: false)
-      ..lineTo(r.left, r.top + cut)
-      ..arcToPoint(Offset(r.left + cut, r.top), radius: rad, clockwise: false)
+  Color get _dim => Color.lerp(orn, Colors.black, 0.35)!;
+
+  void _leaf(Canvas c, Offset o, double angle, double len, Paint p) {
+    c.save();
+    c.translate(o.dx, o.dy);
+    c.rotate(angle);
+    final path = Path()
+      ..moveTo(0, 0)
+      ..quadraticBezierTo(len * 0.5, -len * 0.42, len, 0)
+      ..quadraticBezierTo(len * 0.5, len * 0.42, 0, 0)
       ..close();
+    c.drawPath(path, p);
+    c.restore();
+  }
+
+  void _rosette(Canvas c, Offset o) {
+    c.drawCircle(o, 9.5, Paint()..color = Colors.black.withOpacity(0.35));
+    for (int k = 0; k < 8; k++) {
+      final a = k * math.pi / 4;
+      _leaf(c, o, a, 9.5, Paint()..color = k.isEven ? orn : Color.lerp(orn, Colors.white, 0.45)!);
+    }
+    c.drawCircle(o, 3.3, Paint()..color = _dim);
+    c.drawCircle(o, 2.1, Paint()..color = Colors.white.withOpacity(0.95));
+  }
+
+  void _corner(Canvas c, Offset o, double sx, double sy) {
+    c.save();
+    c.translate(o.dx, o.dy);
+    c.scale(sx, sy);
+    final stroke = Paint()
+      ..color = orn
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.5
+      ..strokeCap = StrokeCap.round;
+    // لفّتان من الأرابيسك تخرجان من الوردة على الضلعين
+    final s1 = Path()
+      ..moveTo(60, 11)
+      ..cubicTo(34, 11, 11, 18, 11, 60);
+    c.drawPath(s1, stroke);
+    final s2 = Path()
+      ..moveTo(44, 19)
+      ..cubicTo(30, 17, 19, 24, 19, 44);
+    c.drawPath(s2, stroke..strokeWidth = 1.0);
+    // أوراق نباتية على الساعدين
+    final leaf = Paint()..color = orn.withOpacity(0.95);
+    _leaf(c, Offset(28, 9.5), -0.5, 11, leaf);
+    _leaf(c, Offset(9.5, 28), math.pi / 2 + 0.5, 11, leaf);
+    _leaf(c, Offset(44, 8), -0.35, 9, leaf);
+    _leaf(c, Offset(8, 44), math.pi / 2 + 0.35, 9, leaf);
+    c.drawCircle(Offset(62, 11), 2.0, Paint()..color = Colors.white.withOpacity(0.9));
+    c.drawCircle(Offset(11, 62), 2.0, Paint()..color = Colors.white.withOpacity(0.9));
+    _rosette(c, Offset(17, 17));
+    c.restore();
   }
 
   @override
   void paint(Canvas c, Size s) {
-    final outer = Paint()
-      ..color = color.withOpacity(0.75)
+    final rect = Offset.zero & s;
+    // حدّ ذهبي متدرّج (كالمعدن المصقول)
+    final outer = RRect.fromRectAndRadius(Rect.fromLTWH(1.5, 1.5, s.width - 3, s.height - 3), Radius.circular(24));
+    c.drawRRect(outer, Paint()
+      ..shader = SweepGradient(colors: [orn, Color.lerp(orn, Colors.white, 0.65)!, orn, _dim, orn], stops: [0.0, 0.25, 0.5, 0.75, 1.0]).createShader(rect)
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.3;
-    final inner = Paint()
-      ..color = accent.withOpacity(0.55)
+      ..strokeWidth = done ? 3.4 : 2.8);
+    // خط داخلي رفيع
+    c.drawRRect(RRect.fromRectAndRadius(Rect.fromLTWH(7, 7, s.width - 14, s.height - 14), Radius.circular(19)), Paint()
+      ..color = orn.withOpacity(0.7)
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 0.9;
-    c.drawPath(_frame(s, 5, 14), outer);
-    c.drawPath(_frame(s, 10, 10), inner);
-
-    // وردة صغيرة في كل زاوية
-    for (final o in [Offset(5, 5), Offset(s.width - 5, 5), Offset(5, s.height - 5), Offset(s.width - 5, s.height - 5)]) {
-      _drawRosette(c, o, 6, accent, Colors.white.withOpacity(0.9));
+      ..strokeWidth = 0.9);
+    // شريط لآلئ بين الخطين
+    final pearl = Paint()..color = orn.withOpacity(0.85);
+    final cx = s.width / 2;
+    for (double x = 70; x <= s.width - 70; x += 11) {
+      if ((x - cx).abs() >= 66) c.drawCircle(Offset(x, 4.2), 1.35, pearl);
+      c.drawCircle(Offset(x, s.height - 4.2), 1.35, pearl);
     }
-
-    // زخرفة المنتصف أعلى وأسفل: معين تحيط به نقطتان
-    final dot = Paint()..color = accent.withOpacity(0.85);
-    for (final y in [5.0, s.height - 5]) {
-      final cx = s.width / 2;
-      c.drawCircle(Offset(cx - 14, y), 1.8, dot);
-      c.drawCircle(Offset(cx + 14, y), 1.8, dot);
-      final d = Path()
-        ..moveTo(cx, y - 5)
-        ..lineTo(cx + 5, y)
-        ..lineTo(cx, y + 5)
-        ..lineTo(cx - 5, y)
-        ..close();
-      c.drawPath(d, Paint()..color = accent);
-      c.drawPath(d, Paint()
-        ..color = Colors.white.withOpacity(0.8)
+    for (double y = 70; y <= s.height - 70; y += 11) {
+      c.drawCircle(Offset(4.2, y), 1.35, pearl);
+      c.drawCircle(Offset(s.width - 4.2, y), 1.35, pearl);
+    }
+    // معيّنات في منتصف الجانبين
+    final dm = Paint()..color = orn;
+    for (final x in [4.2, s.width - 4.2]) {
+      final o = Offset(x, s.height / 2);
+      c.drawPath(_diamondPath(o, 6), dm);
+      c.drawPath(_diamondPath(o, 6), Paint()
+        ..color = Colors.white.withOpacity(0.85)
         ..style = PaintingStyle.stroke
         ..strokeWidth = 0.8);
+    }
+    // أركان الأرابيسك
+    _corner(c, Offset.zero, 1, 1);
+    _corner(c, Offset(s.width, 0), -1, 1);
+    _corner(c, Offset(0, s.height), 1, -1);
+    _corner(c, Offset(s.width, s.height), -1, -1);
+    // لؤلؤة وزهرة أسفل المنتصف
+    final y = s.height - 4.2;
+    for (final dx in [-26.0, -16.0, 16.0, 26.0]) {
+      c.drawCircle(Offset(cx + dx, y), 1.7, pearl);
+    }
+    c.drawPath(_diamondPath(Offset(cx, y), 6.5), dm);
+    c.drawPath(_diamondPath(Offset(cx, y), 6.5), Paint()
+      ..color = Colors.white.withOpacity(0.9)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 0.9);
+    c.drawCircle(Offset(cx, y), 1.6, Paint()..color = _dim);
+  }
+
+  @override
+  bool shouldRepaint(covariant _OrnateFramePainter old) => old.orn != orn || old.done != done;
+}
+
+// لوحة (خرطوشة) ذهبية مزدوجة الخط أعلى المنتصف، في طرفيها نجمتان، وتحمل العدد المطلوب
+class _CartouchePainter extends CustomPainter {
+  final Color orn;
+  _CartouchePainter(this.orn);
+  @override
+  void paint(Canvas c, Size s) {
+    final w = s.width, h = s.height;
+    final dark = Color(0xFF8A6A1F);
+    Path plaque(double inset) {
+      final i = inset;
+      return Path()
+        ..moveTo(i, h / 2)
+        ..lineTo(h * 0.55, i)
+        ..lineTo(w - h * 0.55, i)
+        ..lineTo(w - i, h / 2)
+        ..lineTo(w - h * 0.55, h - i)
+        ..lineTo(h * 0.55, h - i)
+        ..close();
+    }
+
+    final path = plaque(0);
+    c.drawShadow(path, Colors.black, 4, false);
+    final rect = Offset.zero & s;
+    c.drawPath(path, Paint()..shader = LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Color(0xFFFFF6D6), orn, Color(0xFFB78F2E)], stops: [0.0, 0.55, 1.0]).createShader(rect));
+    c.drawPath(path, Paint()
+      ..color = dark
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.3);
+    c.drawPath(plaque(3.2), Paint()
+      ..color = dark.withOpacity(0.55)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 0.7);
+    // نجمتان صغيرتان في الطرفين
+    for (final x in [h * 0.62, w - h * 0.62]) {
+      c.drawPath(_starPath(Offset(x, h / 2), 4.6), Paint()..color = dark);
+      c.drawCircle(Offset(x, h / 2), 1.1, Paint()..color = Color(0xFFFFF6D6));
     }
   }
 
   @override
-  bool shouldRepaint(covariant _BoxFramePainter old) => old.color != color || old.accent != accent;
+  bool shouldRepaint(covariant _CartouchePainter old) => old.orn != orn;
+}
+
+// فاصل زخرفي رفيع (خط – معيّن – خط) بين رأس الصندوق ونصّه
+class _OrnDivider extends StatelessWidget {
+  final Color color;
+  const _OrnDivider(this.color);
+  @override
+  Widget build(BuildContext context) {
+    Widget line(bool fadeToEnd) => Expanded(
+          child: Container(
+            height: 1.2,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: fadeToEnd ? Alignment.centerRight : Alignment.centerLeft,
+                end: fadeToEnd ? Alignment.centerLeft : Alignment.centerRight,
+                colors: [color.withOpacity(0.85), color.withOpacity(0.0)],
+              ),
+            ),
+          ),
+        );
+    Widget dm(double sz, double o) => Transform.rotate(angle: math.pi / 4, child: Container(width: sz, height: sz, color: color.withOpacity(o)));
+    return Row(children: [
+      line(false),
+      SizedBox(width: 6),
+      dm(5, 0.6),
+      SizedBox(width: 4),
+      dm(8, 1.0),
+      SizedBox(width: 4),
+      dm(5, 0.6),
+      SizedBox(width: 6),
+      line(true),
+    ]);
+  }
 }
 
 class CountBox extends StatefulWidget {
@@ -4287,8 +4583,8 @@ class _CountBoxState extends State<CountBox> with TickerProviderStateMixin {
   }
 
   void _tap() {
-    _c.forward(from: 0); // يكبر شوي ثم يرجع
-    _r.forward(from: 0); // موجة لون من مكان اللمس
+    _c.forward(from: 0);
+    _r.forward(from: 0);
     if (widget.count + 1 == widget.target) {
       HapticFeedback.mediumImpact();
     } else {
@@ -4306,8 +4602,6 @@ class _CountBoxState extends State<CountBox> with TickerProviderStateMixin {
     return Color.lerp(b, g, (p - 0.5) / 0.5)!;
   }
 
-  Widget _corner(Color col) => SizedBox(width: 22, height: 22, child: CustomPaint(painter: _RosettePainter(col, Color(0xFFE9C66B))));
-
   @override
   Widget build(BuildContext context) {
     final dark = isDark(context);
@@ -4318,127 +4612,161 @@ class _CountBoxState extends State<CountBox> with TickerProviderStateMixin {
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTapDown: (d) {
-          _tapPos = d.localPosition - Offset(10, 10);
+          _tapPos = d.localPosition - Offset(10, 18);
           setState(() => _down = true);
         },
         onTapUp: (_) => setState(() => _down = false),
         onTapCancel: () => setState(() => _down = false),
         onTap: _tap,
         child: Padding(
-          padding: EdgeInsets.symmetric(vertical: 10, horizontal: 10),
+          padding: EdgeInsets.fromLTRB(10, 20, 10, 12),
           child: TweenAnimationBuilder<double>(
             tween: Tween<double>(begin: 0, end: prog),
             duration: Duration(milliseconds: 500),
             curve: Curves.easeOutCubic,
             child: widget.child,
-            builder: (context, p, child) => AnimatedBuilder(animation: _glow, builder: (context, _) {
-              final g = math.max(_glow.value, _down ? 1.0 : 0.0);
-              final frame = Color.lerp(_colorFor(p, dark), Colors.white, 0.24 * g)!;
-              final radius = BorderRadius.circular(24);
-              return Stack(clipBehavior: Clip.none, children: [
-                Container(
-                  decoration: BoxDecoration(
-                    borderRadius: radius,
-                    gradient: LinearGradient(
-                      begin: Alignment.topRight,
-                      end: Alignment.bottomLeft,
-                      colors: [frame.withOpacity((dark ? 0.22 : 0.15) + 0.12 * g), frame.withOpacity((dark ? 0.07 : 0.04) + 0.08 * g)],
+            builder: (context, p, child) => AnimatedBuilder(
+              animation: _glow,
+              builder: (context, _) {
+                final g = math.max(_glow.value, _down ? 1.0 : 0.0);
+                final base = _colorFor(p, dark);
+                final frame = Color.lerp(base, Colors.white, 0.20 * g)!;
+                final orn = Color.lerp(dark ? Color(0xFFE9C66B) : Color(0xFFC9A047), Colors.white, 0.35 * g)!;
+                final radius = BorderRadius.circular(26);
+                return Stack(clipBehavior: Clip.none, children: [
+                  Container(
+                    decoration: BoxDecoration(
+                      borderRadius: radius,
+                      boxShadow: [
+                        BoxShadow(color: frame.withOpacity((done ? 0.50 : 0.26) + 0.15 * g), blurRadius: (done ? 28 : 18) + 6 * g, spreadRadius: done ? 1.5 : 0, offset: Offset(0, 7)),
+                        BoxShadow(color: orn.withOpacity(done ? 0.35 : 0.0), blurRadius: 40, spreadRadius: 2),
+                      ],
                     ),
-                    border: Border.all(color: frame.withOpacity(0.9), width: done ? 2.4 : 1.8),
-                    boxShadow: [BoxShadow(color: frame.withOpacity((done ? 0.40 : 0.22) + 0.15 * g), blurRadius: (done ? 24 : 14) + 6 * g, spreadRadius: done ? 1 : 0, offset: Offset(0, 5))],
-                  ),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(22),
-                    child: Stack(children: [
-                      // تعبئة تتقدّم مع العدّ
-                      Positioned.fill(
-                        child: Align(
-                          alignment: AlignmentDirectional.centerStart,
-                          child: FractionallySizedBox(
-                            widthFactor: p.clamp(0.0, 1.0).toDouble(),
-                            heightFactor: 1,
-                            child: DecoratedBox(
-                              decoration: BoxDecoration(
-                                gradient: LinearGradient(begin: AlignmentDirectional.centerStart, end: AlignmentDirectional.centerEnd, colors: [frame.withOpacity((dark ? 0.30 : 0.24) + 0.12 * g), frame.withOpacity((dark ? 0.10 : 0.07) + 0.06 * g)]),
+                    child: ClipRRect(
+                      borderRadius: radius,
+                      child: Stack(children: [
+                        // ورقة كريمية (أو ليلية) تحت كل الطبقات
+                        Positioned.fill(child: ColoredBox(color: dark ? darkTint(0.10) : Color(0xFFFFFBEF))),
+                        // توهّج لوني ناعم من الأعلى
+                        Positioned.fill(
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              gradient: RadialGradient(
+                                center: Alignment(0.0, -1.0),
+                                radius: 1.35,
+                                colors: [frame.withOpacity((dark ? 0.34 : 0.24) + 0.12 * g), frame.withOpacity((dark ? 0.06 : 0.04) + 0.05 * g)],
                               ),
                             ),
                           ),
                         ),
-                      ),
-                      Positioned.fill(child: IgnorePointer(child: CustomPaint(painter: _LatticePainter(frame.withOpacity(dark ? 0.13 : 0.11))))),
-                      Positioned.fill(child: IgnorePointer(child: CustomPaint(painter: _BoxFramePainter(frame, done ? Color(0xFFE9C66B) : frame)))),
-                      Positioned.fill(
-                        child: IgnorePointer(
-                          child: AnimatedBuilder(animation: _r, builder: (_, __) => CustomPaint(painter: _RipplePainter(_tapPos, _r.value, frame))),
-                        ),
-                      ),
-                      Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                        Padding(
-                          padding: EdgeInsets.fromLTRB(20, 18, 16, 0),
-                          child: Row(children: [
-                            SizedBox(
-                              width: 50,
-                              height: 50,
-                              child: Stack(alignment: Alignment.center, children: [
-                                SizedBox.expand(
-                                  child: CircularProgressIndicator(
-                                    value: p,
-                                    strokeWidth: 4.5,
-                                    strokeCap: StrokeCap.round,
-                                    backgroundColor: frame.withOpacity(0.22),
-                                    valueColor: AlwaysStoppedAnimation<Color>(frame),
-                                  ),
-                                ),
-                                AnimatedSwitcher(
-                                  duration: Duration(milliseconds: 220),
-                                  transitionBuilder: (w, a) => ScaleTransition(scale: a, child: FadeTransition(opacity: a, child: w)),
-                                  child: done
-                                      ? Icon(Icons.check_rounded, key: ValueKey('done'), size: 28, color: frame)
-                                      : Text('${widget.count}', key: ValueKey(widget.count), style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: frame, height: 1.1)),
-                                ),
-                              ]),
-                            ),
-                            SizedBox(width: 12),
-                            Expanded(
-                              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                                Row(children: [
-                                  Flexible(
-                                    child: Text(
-                                      done ? 'تمّ  ${widget.target} / ${widget.target}' : (widget.count == 0 ? 'اضغط للعدّ' : '${widget.count} / ${widget.target}'),
-                                      style: TextStyle(fontSize: 16.5, fontWeight: FontWeight.w800, color: frame, height: 1.3),
-                                    ),
-                                  ),
-                                  if (done) ...[SizedBox(width: 6), Icon(Icons.auto_awesome, size: 18, color: dark ? Color(0xFFFFD98A) : Color(0xFFC6A75E))],
-                                ]),
-                                Text(
-                                  done ? 'تقبّل الله طاعتك' : (widget.count == 0 ? 'المطلوب ${widget.target} مرات' : 'باقي ${widget.target - widget.count}'),
-                                  style: TextStyle(fontSize: 12.5, color: ink(context).withOpacity(0.65), height: 1.4),
-                                ),
-                              ]),
-                            ),
-                            if (widget.count > 0)
-                              InkWell(
-                                onTap: widget.onReset,
-                                customBorder: CircleBorder(),
-                                child: Container(
-                                  padding: EdgeInsets.all(7),
-                                  decoration: BoxDecoration(shape: BoxShape.circle, color: frame.withOpacity(0.14), border: Border.all(color: frame.withOpacity(0.5))),
-                                  child: Icon(Icons.restart_alt, size: 20, color: frame),
+                        // تعبئة لونية تتقدّم من اليمين
+                        Positioned.fill(
+                          child: Align(
+                            alignment: AlignmentDirectional.centerStart,
+                            child: FractionallySizedBox(
+                              widthFactor: p.clamp(0.0, 1.0).toDouble(),
+                              heightFactor: 1,
+                              child: DecoratedBox(
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(begin: AlignmentDirectional.centerStart, end: AlignmentDirectional.centerEnd, colors: [frame.withOpacity((dark ? 0.26 : 0.20) + 0.10 * g), frame.withOpacity(0.0)]),
                                 ),
                               ),
-                          ]),
+                            ),
+                          ),
                         ),
-                        Padding(padding: EdgeInsets.fromLTRB(22, 8, 22, 20), child: child),
+                        // مشربية الخاتم السليماني (مُخزَّنة، لا تُعاد رسمها أثناء الوهج)
+                        Positioned.fill(child: IgnorePointer(child: RepaintBoundary(child: CustomPaint(painter: _TrellisPainter(base.withOpacity(dark ? 0.16 : 0.13)))))),
+                        Positioned.fill(
+                          child: IgnorePointer(
+                            child: AnimatedBuilder(animation: _r, builder: (_, __) => CustomPaint(painter: _RipplePainter(_tapPos, _r.value, frame))),
+                          ),
+                        ),
+                        Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                          Padding(
+                            padding: EdgeInsets.fromLTRB(30, 30, 30, 0),
+                            child: Row(children: [
+                              SizedBox(
+                                width: 84,
+                                height: 84,
+                                child: Stack(alignment: Alignment.center, children: [
+                                  SizedBox.expand(child: CustomPaint(painter: _StarMedallionPainter(p, frame, orn, done, widget.count, widget.target))),
+                                  AnimatedSwitcher(
+                                    duration: Duration(milliseconds: 220),
+                                    transitionBuilder: (w, a) => ScaleTransition(scale: a, child: FadeTransition(opacity: a, child: w)),
+                                    child: done
+                                        ? Icon(Icons.check_rounded, key: ValueKey('done'), size: 32, color: Colors.white, shadows: [Shadow(color: Colors.black.withOpacity(0.6), blurRadius: 5)])
+                                        : SizedBox(
+                                            key: ValueKey(widget.count),
+                                            width: 36,
+                                            child: FittedBox(
+                                              fit: BoxFit.scaleDown,
+                                              child: Text('${widget.count}', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: Colors.white, height: 1.1, shadows: [Shadow(color: Colors.black.withOpacity(0.65), blurRadius: 5)])),
+                                            ),
+                                          ),
+                                  ),
+                                ]),
+                              ),
+                              SizedBox(width: 14),
+                              Expanded(
+                                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                  Row(children: [
+                                    Flexible(
+                                      child: Text(
+                                        done ? 'تمّ  ${widget.target} / ${widget.target}' : (widget.count == 0 ? 'اضغط للعدّ' : '${widget.count} / ${widget.target}'),
+                                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: done ? orn : frame, height: 1.3),
+                                      ),
+                                    ),
+                                    if (done) ...[SizedBox(width: 6), Icon(Icons.auto_awesome, size: 19, color: orn)],
+                                  ]),
+                                  Text(
+                                    done ? 'تقبّل الله طاعتك' : (widget.count == 0 ? 'المطلوب ${widget.target} مرات' : 'باقي ${widget.target - widget.count}'),
+                                    style: TextStyle(fontSize: 12.5, color: ink(context).withOpacity(0.70), height: 1.4),
+                                  ),
+                                ]),
+                              ),
+                              if (widget.count > 0)
+                                InkWell(
+                                  onTap: widget.onReset,
+                                  customBorder: CircleBorder(),
+                                  child: Container(
+                                    padding: EdgeInsets.all(8),
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      gradient: RadialGradient(colors: [orn.withOpacity(0.30), orn.withOpacity(0.10)]),
+                                      border: Border.all(color: orn.withOpacity(0.9), width: 1.2),
+                                    ),
+                                    child: Icon(Icons.restart_alt, size: 20, color: frame),
+                                  ),
+                                ),
+                            ]),
+                          ),
+                          Padding(padding: EdgeInsets.fromLTRB(34, 12, 34, 0), child: _OrnDivider(orn)),
+                          Padding(padding: EdgeInsets.fromLTRB(30, 10, 30, 30), child: child),
+                        ]),
+                        // إطار الأرابيسك فوق كل شيء
+                        Positioned.fill(child: IgnorePointer(child: CustomPaint(painter: _OrnateFramePainter(orn, done)))),
                       ]),
-                    ]),
+                    ),
                   ),
-                ),
-                Positioned(top: -9, right: -9, child: _corner(frame)),
-                Positioned(top: -9, left: -9, child: _corner(frame)),
-                Positioned(bottom: -9, right: -9, child: _corner(frame)),
-                Positioned(bottom: -9, left: -9, child: _corner(frame)),
-              ]);
-            }),
+                  // لوحة ذهبية أعلى المنتصف
+                  Positioned(
+                    top: -15,
+                    left: 0,
+                    right: 0,
+                    child: Center(
+                      child: SizedBox(
+                        width: 118,
+                        height: 30,
+                        child: CustomPaint(
+                          painter: _CartouchePainter(orn),
+                          child: Center(child: Text('${widget.target} مرات', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w900, color: Color(0xFF3B2A06), height: 1.1))),
+                        ),
+                      ),
+                    ),
+                  ),
+                ]);
+              },
+            ),
           ),
         ),
       ),
@@ -4753,7 +5081,7 @@ class _PrayerCardState extends State<PrayerCard> {
     final radius = BorderRadius.circular(30);
     return Container(
       decoration: BoxDecoration(
-        gradient: LinearGradient(begin: Alignment.topRight, end: Alignment.bottomLeft, colors: dark ? [deepDark, deepGreen] : [deepGreen, green]),
+        gradient: LinearGradient(begin: Alignment.topRight, end: Alignment.bottomLeft, colors: dark ? [deepDark, deepGreen2] : [deepGreen, green2]),
         borderRadius: radius,
         border: Border.all(color: gold.withOpacity(0.75), width: 1.3),
         boxShadow: [BoxShadow(color: (dark ? Colors.black : green).withOpacity(0.35), blurRadius: 18, offset: Offset(0, 8))],
