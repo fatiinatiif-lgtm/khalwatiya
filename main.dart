@@ -930,43 +930,44 @@ class AwradPage extends StatelessWidget {
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(title: Text('الأوراد')),
         body: ListView(padding: EdgeInsets.all(16), children: _stagger([
-          FancyCard(
+          SectionTile(
+            highlight: true,
             title: 'تحدي ما بعد الصلاة',
             subtitle: 'المسبعات والدرديرية والمنظومة بعد كل صلاة',
             icon: Icons.emoji_events_rounded,
             onTap: () => Navigator.push(context, SoftRoute(builder: (_) => PrayerChallengePage())),
           ),
-          FancyCard(
+          SectionTile(
             title: 'كتاب أوراد الطريقة',
             subtitle: 'الكتاب الكامل مع فهرس العناوين',
             icon: Icons.menu_book_rounded,
             onTap: () => Navigator.push(context, SoftRoute(builder: (_) => BookIndexPage())),
           ),
-          FancyCard(
+          SectionTile(
             title: 'المسبعات',
             subtitle: 'النص الكامل',
             icon: Icons.format_list_numbered,
             onTap: () => openText(context, 'المسبعات', 'assets/texts/musabbaat.txt', false),
           ),
-          FancyCard(
+          SectionTile(
             title: 'الصلوات الدرديرية',
             subtitle: 'النص الكامل',
             icon: Icons.volunteer_activism,
             onTap: () => openText(context, 'الصلوات الدرديرية', 'assets/texts/salawat_dardiriyya.txt', false),
           ),
-          FancyCard(
+          SectionTile(
             title: 'المنظومة',
             subtitle: 'القصيدة كاملة',
             icon: Icons.library_books,
             onTap: () => openText(context, 'المنظومة', 'assets/texts/manzuma.txt', true),
           ),
-          FancyCard(
+          SectionTile(
             title: 'دعاء الختام',
             subtitle: 'النص كاملاً',
             icon: Icons.auto_awesome,
             onTap: () => openTextString(context, 'دعاء الختام', duaKhatmText),
           ),
-          FancyCard(
+          SectionTile(
             title: 'حزب البحر',
             subtitle: 'النص كاملاً',
             icon: Icons.waves,
@@ -1010,6 +1011,120 @@ class SectionCard extends StatelessWidget {
           ),
         ),
       );
+}
+
+// ===================== بطاقة قسم الأوراد: لوحة غنية بنجمة ذهبية وزخرفة خفيفة =====================
+class SectionTile extends StatefulWidget {
+  final String title, subtitle;
+  final IconData icon;
+  final VoidCallback? onTap;
+  final bool highlight; // لوحة ذهبية للقسم المميز
+  const SectionTile({super.key, required this.title, required this.subtitle, required this.icon, required this.onTap, this.highlight = false});
+  @override
+  State<SectionTile> createState() => _SectionTileState();
+}
+
+class _TileMedallionPainter extends CustomPainter {
+  final Color a, b, line;
+  _TileMedallionPainter(this.a, this.b, this.line);
+  @override
+  void paint(Canvas c, Size s) {
+    final ctr = s.center(Offset.zero);
+    final R = s.width / 2;
+    c.drawCircle(ctr, R - 1.5, Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.2
+      ..color = line.withOpacity(0.7));
+    final star = _wirdStarPath(ctr, R - 5, 0.80);
+    c.drawShadow(star, Colors.black, 3, false);
+    c.drawPath(star, Paint()..shader = LinearGradient(begin: Alignment.topRight, end: Alignment.bottomLeft, colors: [a, b]).createShader(Rect.fromCircle(center: ctr, radius: R)));
+    c.drawPath(star, Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.1
+      ..color = line);
+  }
+
+  @override
+  bool shouldRepaint(covariant _TileMedallionPainter old) => old.a != a || old.b != b || old.line != line;
+}
+
+class _SectionTileState extends State<SectionTile> {
+  bool pressed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = isDark(context);
+    const goldLight = Color(0xFFF2DE9F);
+    final hl = widget.highlight;
+    final bg = hl ? [Color(0xFFF7E8B5), gold] : (dark ? [deepDark, deepGreen2] : [deepGreen, green2]);
+    final titleColor = hl ? deepGreen : goldLight;
+    final subColor = hl ? deepGreen.withOpacity(0.80) : Colors.white70;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTapDown: (_) => setState(() => pressed = true),
+      onTapUp: (_) => setState(() => pressed = false),
+      onTapCancel: () => setState(() => pressed = false),
+      onTap: widget.onTap,
+      child: AnimatedScale(
+        scale: pressed ? 0.98 : 1.0,
+        duration: Duration(milliseconds: 90),
+        child: Container(
+          margin: EdgeInsets.only(bottom: 14),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(begin: Alignment.topRight, end: Alignment.bottomLeft, colors: bg),
+            borderRadius: BorderRadius.circular(26),
+            border: Border.all(color: hl ? Colors.white.withOpacity(0.8) : gold, width: 1.4),
+            boxShadow: [BoxShadow(color: (hl ? gold : (dark ? Colors.black : green)).withOpacity(hl ? 0.45 : (dark ? 0.45 : 0.28)), blurRadius: 16, offset: Offset(0, 6))],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(25),
+            child: Stack(children: [
+              Positioned.fill(child: CustomPaint(painter: StarPatternPainter((hl ? Colors.white : gold).withOpacity(hl ? 0.22 : 0.12)))),
+              // خط داخلي رفيع
+              Positioned.fill(
+                child: Padding(
+                  padding: EdgeInsets.all(5),
+                  child: DecoratedBox(decoration: BoxDecoration(borderRadius: BorderRadius.circular(21), border: Border.all(color: (hl ? Colors.white : gold).withOpacity(0.40), width: 0.9))),
+                ),
+              ),
+              Padding(
+                padding: EdgeInsets.fromLTRB(18, 18, 16, 18),
+                child: Row(children: [
+                  SizedBox(
+                    width: 62,
+                    height: 62,
+                    child: CustomPaint(
+                      painter: hl ? _TileMedallionPainter(deepGreen2, deepGreen, Colors.white) : _TileMedallionPainter(Color(0xFFF7E8B5), gold, Color(0xFF8A6D1F)),
+                      child: Center(child: Icon(widget.icon, color: hl ? goldLight : deepGreen, size: 27)),
+                    ),
+                  ),
+                  SizedBox(width: 14),
+                  Expanded(
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: AlignmentDirectional.centerStart,
+                        child: Text(widget.title, style: TextStyle(fontFamily: 'Rsail', fontSize: 25, height: 1.4, fontWeight: FontWeight.w700, color: titleColor)),
+                      ),
+                      SizedBox(height: 2),
+                      Text(widget.subtitle, style: TextStyle(fontSize: 13.5, height: 1.5, color: subColor)),
+                    ]),
+                  ),
+                  SizedBox(width: 8),
+                  Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(shape: BoxShape.circle, color: (hl ? deepGreen : gold).withOpacity(0.20), border: Border.all(color: hl ? deepGreen : gold, width: 1.2)),
+                    child: Icon(Icons.chevron_left, color: hl ? deepGreen : goldLight, size: 24),
+                  ),
+                ]),
+              ),
+            ]),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 // ===================== تحدي ما بعد الصلاة =====================
@@ -2346,26 +2461,26 @@ class MasbahaPage extends StatelessWidget {
         appBar: AppBar(title: Text('المسبحة')),
         body: ListView(padding: EdgeInsets.all(16), children: [
           for (final w in wirdDefs) ...[
-            FancyCard(
+            SectionTile(
               title: w.title,
               subtitle: 'اضغط لعرض المهام وعدّاد المسبحة',
               icon: w.icon,
               onTap: () => Navigator.push(context, SoftRoute(builder: (_) => WirdPage(def: w))),
             ),
           ],
-          FancyCard(
+          SectionTile(
             title: namesDef.title,
             subtitle: 'لا إله إلا الله • الله • هو • حق • حي • قيوم • قهار',
             icon: namesDef.icon,
             onTap: () => Navigator.push(context, SoftRoute(builder: (_) => WirdPage(def: namesDef))),
           ),
-          FancyCard(
+          SectionTile(
             title: 'الإحصائيات',
             subtitle: 'الأيام المتتالية وعدد الأذكار',
             icon: Icons.bar_chart_rounded,
             onTap: () => Navigator.push(context, SoftRoute(builder: (_) => StatsPage())),
           ),
-          FancyCard(
+          SectionTile(
             title: 'سجل الإنجازات',
             subtitle: 'الأذكار التي أكملتها',
             icon: Icons.history,
@@ -2490,76 +2605,156 @@ class _WirdPageState extends State<WirdPage> {
               ]),
       );
 
+  // خانة الذكر: تمتلئ بلون الثيم مع التقدّم، ونجمة ثمانية تحمل النسبة، وخرزات عشر تضيء واحدة واحدة
   Widget _taskCard(Task t) {
     final c = counts[t.id] ?? 0;
     final tg = targets[t.id] ?? t.target;
     final done = c >= tg;
     final frac = tg == 0 ? 0.0 : (c / tg).clamp(0.0, 1.0).toDouble();
     final dark = isDark(context);
+    final theme = dark ? lighten(0.30) : green;
+    final beads = (frac * 10).floor().clamp(0, 10).toInt();
+    Widget bead(int i) {
+      final lit = i < beads;
+      return Container(
+        width: 10,
+        height: 10,
+        margin: EdgeInsetsDirectional.only(end: 4),
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: lit ? theme : Colors.transparent,
+          border: Border.all(color: theme.withOpacity(lit ? 1.0 : 0.45), width: 1.1),
+          boxShadow: lit && !done ? [BoxShadow(color: theme.withOpacity(0.45), blurRadius: 4)] : null,
+        ),
+      );
+    }
+
     return Container(
       margin: EdgeInsets.only(bottom: 14),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topRight,
-          end: Alignment.bottomLeft,
-          colors: dark ? [darkTint(0.18), darkTint(0.08)] : [Colors.white, tint(0.12)],
-        ),
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: done ? gold : gold.withOpacity(0.55), width: done ? 2.2 : 1.2),
-        boxShadow: [BoxShadow(color: (dark ? Colors.black : green).withOpacity(dark ? 0.4 : 0.14), blurRadius: 14, offset: Offset(0, 5))],
+        borderRadius: BorderRadius.circular(26),
+        border: Border.all(color: theme.withOpacity(done ? 0.40 : 0.85), width: done ? 1.2 : 1.6),
+        boxShadow: [BoxShadow(color: theme.withOpacity(done ? 0.0 : (dark ? 0.22 : 0.18)), blurRadius: 14, offset: Offset(0, 5))],
       ),
-      child: Material(
-        color: Colors.transparent,
-        borderRadius: BorderRadius.circular(22),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(22),
-          onTap: () async {
-            await Navigator.push(context, SoftRoute(builder: (_) => CounterPage(task: t, wird: widget.def.title)));
-            load();
-          },
-          child: Padding(
-            padding: EdgeInsets.all(14),
-            child: Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
-              SizedBox(
-                width: 62,
-                height: 62,
-                child: Stack(alignment: Alignment.center, children: [
-                  SizedBox.expand(
-                    child: CircularProgressIndicator(
-                      value: frac,
-                      strokeWidth: 5,
-                      color: done ? gold : green,
-                      backgroundColor: dark ? darkTint(0.30) : tint(0.20),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(24.5),
+        child: Material(
+          color: dark ? darkTint(0.10) : Colors.white,
+          child: InkWell(
+            onTap: () async {
+              await Navigator.push(context, SoftRoute(builder: (_) => CounterPage(task: t, wird: widget.def.title)));
+              load();
+            },
+            child: Stack(children: [
+              // التعبئة: تنمو من جهة البداية بقدر التقدّم
+              Positioned.fill(
+                child: TweenAnimationBuilder<double>(
+                  tween: Tween<double>(begin: 0, end: frac),
+                  duration: Duration(milliseconds: 700),
+                  curve: Curves.easeOutCubic,
+                  builder: (_, v, __) => FractionallySizedBox(
+                    alignment: AlignmentDirectional.centerStart,
+                    widthFactor: v.clamp(0.0, 1.0).toDouble(),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: AlignmentDirectional.centerStart,
+                          end: AlignmentDirectional.centerEnd,
+                          colors: [theme.withOpacity(done ? 0.14 : 0.30), theme.withOpacity(done ? 0.08 : 0.12)],
+                        ),
+                      ),
                     ),
                   ),
-                  done
-                      ? Icon(Icons.check_rounded, color: gold, size: 30)
-                      : Text('${(frac * 100).round()}%', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: accent(context))),
-                ]),
+                ),
               ),
-              SizedBox(width: 14),
-              Expanded(
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(t.text, style: TextStyle(fontSize: 17, height: 1.8, fontWeight: FontWeight.w600, color: ink(context))),
-                  SizedBox(height: 6),
-                  Container(
-                    padding: EdgeInsets.symmetric(horizontal: 12, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: gold.withOpacity(0.16),
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: gold.withOpacity(0.6)),
+              Padding(
+                padding: EdgeInsets.all(14),
+                child: Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+                  SizedBox(
+                    width: 66,
+                    height: 66,
+                    child: CustomPaint(
+                      painter: _WirdMedallionPainter(frac, theme, done),
+                      child: Center(
+                        child: done
+                            ? Icon(Icons.check_rounded, color: Colors.white, size: 28)
+                            : Text('${(frac * 100).round()}%', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w900, color: Colors.white, height: 1.1)),
+                      ),
                     ),
-                    child: Text('$c / $tg', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: accent(context))),
                   ),
+                  SizedBox(width: 14),
+                  Expanded(
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text(t.text, style: TextStyle(fontSize: 17, height: 1.8, fontWeight: FontWeight.w700, color: ink(context).withOpacity(done ? 0.75 : 1.0))),
+                      SizedBox(height: 8),
+                      Wrap(crossAxisAlignment: WrapCrossAlignment.center, spacing: 10, runSpacing: 6, children: [
+                        Row(mainAxisSize: MainAxisSize.min, children: [for (int i = 0; i < 10; i++) bead(i)]),
+                        Text('$c / $tg', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w800, color: accent(context))),
+                      ]),
+                    ]),
+                  ),
+                  if (t.custom) IconButton(icon: Icon(Icons.delete_outline), onPressed: () => deleteDhikr(t)),
                 ]),
               ),
-              if (t.custom) IconButton(icon: Icon(Icons.delete_outline), onPressed: () => deleteDhikr(t)),
             ]),
           ),
         ),
       ),
     );
   }
+}
+
+// ميدالية نجمة ثمانية يحيط بها حلقة التقدّم
+Path _wirdStarPath(Offset c, double R, [double inner = 0.78]) {
+  final path = Path();
+  for (int k = 0; k < 16; k++) {
+    final r = k.isEven ? R : R * inner;
+    final a = -math.pi / 2 + k * math.pi / 8;
+    final pt = Offset(c.dx + r * math.cos(a), c.dy + r * math.sin(a));
+    if (k == 0) {
+      path.moveTo(pt.dx, pt.dy);
+    } else {
+      path.lineTo(pt.dx, pt.dy);
+    }
+  }
+  path.close();
+  return path;
+}
+
+class _WirdMedallionPainter extends CustomPainter {
+  final double frac;
+  final Color color;
+  final bool done;
+  _WirdMedallionPainter(this.frac, this.color, this.done);
+
+  @override
+  void paint(Canvas c, Size s) {
+    final ctr = s.center(Offset.zero);
+    final R = s.width / 2;
+    // مسار الحلقة والتقدّم
+    c.drawCircle(ctr, R - 3, Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3.5
+      ..color = color.withOpacity(0.22));
+    if (frac > 0) {
+      c.drawArc(Rect.fromCircle(center: ctr, radius: R - 3), -math.pi / 2, 2 * math.pi * frac, false, Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3.5
+        ..strokeCap = StrokeCap.round
+        ..color = done ? gold : color);
+    }
+    // النجمة
+    final star = _wirdStarPath(ctr, R - 9);
+    c.drawShadow(star, Colors.black, 3, false);
+    c.drawPath(star, Paint()..shader = LinearGradient(begin: Alignment.topRight, end: Alignment.bottomLeft, colors: [lighten(0.10), deepGreen2]).createShader(Rect.fromCircle(center: ctr, radius: R)));
+    c.drawPath(star, Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.2
+      ..color = gold);
+  }
+
+  @override
+  bool shouldRepaint(covariant _WirdMedallionPainter old) => old.frac != frac || old.color != color || old.done != done;
 }
 
 class CounterPage extends StatefulWidget {
@@ -4811,273 +5006,70 @@ CountSplit? splitCount(String paragraph) {
 
 int? countTarget(String paragraph) => splitCount(paragraph)?.target;
 
-// ===== صناديق العدّ: داخل سادة للقراءة، والزخرفة والحركة كلها على الإطار =====
-// نجمة ثمانية (رُبع الحزب): مربعان متداخلان
-Path _starPath(Offset c, double R, [double inner = 0.765]) {
-  final path = Path();
-  for (int k = 0; k < 16; k++) {
-    final r = k.isEven ? R : R * inner;
-    final a = -math.pi / 2 + k * math.pi / 8;
-    final pt = Offset(c.dx + r * math.cos(a), c.dy + r * math.sin(a));
-    if (k == 0) {
-      path.moveTo(pt.dx, pt.dy);
-    } else {
-      path.lineTo(pt.dx, pt.dy);
-    }
-  }
-  path.close();
-  return path;
-}
+// ===== صناديق العدّ: صندوق شفاف بلون الثيم، فقاعات تخرج منه عند الضغط، ويخفت لونه عند الإتمام =====
 
-Path _diamondPath(Offset o, double r) => Path()
-  ..moveTo(o.dx, o.dy - r)
-  ..lineTo(o.dx + r, o.dy)
-  ..lineTo(o.dx, o.dy + r)
-  ..lineTo(o.dx - r, o.dy)
-  ..close();
-
-// مسار الإطار: يبدأ من منتصف الحافة العليا ويدور مع عقارب الساعة
-Path _framePath(Rect rc, double r) {
-  final p = Path();
-  p.moveTo(rc.center.dx, rc.top);
-  p.lineTo(rc.right - r, rc.top);
-  p.arcToPoint(Offset(rc.right, rc.top + r), radius: Radius.circular(r));
-  p.lineTo(rc.right, rc.bottom - r);
-  p.arcToPoint(Offset(rc.right - r, rc.bottom), radius: Radius.circular(r));
-  p.lineTo(rc.left + r, rc.bottom);
-  p.arcToPoint(Offset(rc.left, rc.bottom - r), radius: Radius.circular(r));
-  p.lineTo(rc.left, rc.top + r);
-  p.arcToPoint(Offset(rc.left + r, rc.top), radius: Radius.circular(r));
-  p.close();
-  return p;
-}
-
-const double _bandW = 9.0; // سُمك شريط الإطار
-
-// إطار أنيق: خطّان ذهبيان رفيعان بينهما شريط تقدّم دقيق ولآلئ صغيرة، وميداليات ناعمة في الأركان ومنتصف الأضلاع
-class _BandPainter extends CustomPainter {
-  final double progress, glow;
-  final Color fill, orn;
-  final bool done;
-  _BandPainter(this.progress, this.glow, this.fill, this.orn, this.done);
-
-  void _medal(Canvas c, Offset o, Color dark, Color light) {
-    c.drawCircle(o, 10.5, Paint()..shader = RadialGradient(colors: [light, orn], stops: [0.0, 1.0]).createShader(Rect.fromCircle(center: o, radius: 10.5)));
-    c.drawCircle(o, 10.5, Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.1
-      ..color = dark);
-    c.drawCircle(o, 7.6, Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 0.7
-      ..color = Colors.white.withOpacity(0.75));
-    final st = _starPath(o, 5.6);
-    c.drawPath(st, Paint()..color = dark.withOpacity(0.85));
-    c.drawCircle(o, 1.5, Paint()..color = Colors.white);
-  }
-
-  void _lozenge(Canvas c, Offset o, Color dark, Color light) {
-    c.drawPath(_diamondPath(o, 5.0), Paint()..color = light);
-    c.drawPath(_diamondPath(o, 5.0), Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.0
-      ..color = dark);
-    c.drawCircle(o, 1.2, Paint()..color = dark);
-  }
-
-  @override
-  void paint(Canvas c, Size s) {
-    final w = s.width, h = s.height;
-    final rc = Rect.fromLTWH(1 + _bandW / 2, 1 + _bandW / 2, w - 2 - _bandW, h - 2 - _bandW);
-    final path = _framePath(rc, 20);
-    final m = path.computeMetrics().first;
-    final len = m.length;
-    final outer = RRect.fromRectAndRadius(Rect.fromLTWH(0.8, 0.8, w - 1.6, h - 1.6), Radius.circular(25));
-    final inner = RRect.fromRectAndRadius(Rect.fromLTWH(1 + _bandW, 1 + _bandW, w - 2 - 2 * _bandW, h - 2 - 2 * _bandW), Radius.circular(16));
-    final dark = Color.lerp(orn, Colors.black, 0.45)!;
-    final light = Color.lerp(orn, Colors.white, 0.55)!;
-
-    // أرضية الشريط: تدرّج ذهبي ناعم بين الخطّين
-    final bandPath = Path()
-      ..fillType = PathFillType.evenOdd
-      ..addRRect(outer)
-      ..addRRect(inner);
-    c.drawPath(bandPath, Paint()..shader = LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [orn.withOpacity(0.24), orn.withOpacity(0.08), orn.withOpacity(0.24)]).createShader(Offset.zero & s));
-
-    // مسار التقدّم الرفيع
-    c.drawPath(path, Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.2
-      ..color = orn.withOpacity(done ? 0.0 : 0.38));
-
-    final pr = done ? 1.0 : progress.clamp(0.0, 1.0).toDouble();
-    if (pr > 0) {
-      final seg = m.extractPath(0, len * pr);
-      final col = done ? orn : Color.lerp(fill, Colors.white, 0.18 * glow)!;
-      c.drawPath(seg, Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 6
-        ..color = col.withOpacity(done ? 0.50 : 0.35)
-        ..maskFilter = MaskFilter.blur(BlurStyle.normal, 4));
-      c.drawPath(seg, Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 3.4
-        ..strokeCap = StrokeCap.round
-        ..color = col);
-    }
-
-    // لآلئ صغيرة على طول الشريط (المضيئة بيضاء)
-    for (double d = 12; d < len - 8; d += 16) {
-      final t = m.getTangentForOffset(d);
-      if (t == null) continue;
-      final lit = done || d / len <= pr;
-      c.drawCircle(t.position, 1.25, Paint()..color = lit ? Colors.white.withOpacity(0.95) : orn.withOpacity(0.85));
-    }
-
-    // الخطّان الذهبيان الرفيعان (خارجي وداخلي)
-    c.drawRRect(outer, Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.5
-      ..color = orn);
-    c.drawRRect(inner, Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 0.9
-      ..color = orn.withOpacity(0.9));
-
-    // ميداليات منتصف الأضلاع (اليمين واليسار والأسفل؛ الأعلى تشغله اللوحة)
-    final mid = 1 + _bandW / 2;
-    _lozenge(c, Offset(mid, h / 2), dark, light);
-    _lozenge(c, Offset(w - mid, h / 2), dark, light);
-    _lozenge(c, Offset(w / 2, h - mid), dark, light);
-
-    // ميدالية في كل ركن
-    for (final o in [Offset(13, 13), Offset(w - 13, 13), Offset(13, h - 13), Offset(w - 13, h - 13)]) {
-      _medal(c, o, dark, light);
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _BandPainter old) => old.progress != progress || old.glow != glow || old.fill != fill || old.orn != orn || old.done != done;
-}
-
-// لمعان يجري حول الإطار باستمرار (لمعتان متقابلتان)
-class _ShimmerPainter extends CustomPainter {
-  final double t;
-  final bool done;
-  _ShimmerPainter(this.t, this.done);
-
-  void _seg(Canvas c, dynamic m, double len, double center, double half, Paint p) {
-    final a = center - half, b = center + half;
-    if (a < 0) {
-      c.drawPath(m.extractPath(0, b), p);
-      c.drawPath(m.extractPath(len + a, len), p);
-    } else if (b > len) {
-      c.drawPath(m.extractPath(a, len), p);
-      c.drawPath(m.extractPath(0, b - len), p);
-    } else {
-      c.drawPath(m.extractPath(a, b), p);
-    }
-  }
-
-  @override
-  void paint(Canvas c, Size s) {
-    final rc = Rect.fromLTWH(1 + _bandW / 2, 1 + _bandW / 2, s.width - 2 - _bandW, s.height - 2 - _bandW);
-    final m = _framePath(rc, 20).computeMetrics().first;
-    final len = m.length;
-    final k = done ? 1.6 : 1.0;
-    for (final off in [0.0, 0.5]) {
-      final ctr = ((t + off) % 1.0) * len;
-      Paint p(double w, double a) => Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeCap = StrokeCap.round
-        ..strokeWidth = w
-        ..color = Colors.white.withOpacity(math.min(1.0, a * k));
-      _seg(c, m, len, ctr, 46, p(_bandW, 0.10));
-      _seg(c, m, len, ctr, 26, p(_bandW - 3, 0.20));
-      _seg(c, m, len, ctr, 11, p(_bandW - 6, 0.55));
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _ShimmerPainter old) => old.t != t || old.done != done;
-}
-
-// عدّاد دائري بسيط: حلقة تتقدّم حول الرقم
+// حلقة تتقدّم حول رقم العدّ
 class _CounterRingPainter extends CustomPainter {
   final double progress;
-  final Color ring, orn;
+  final Color color;
   final bool done;
-  _CounterRingPainter(this.progress, this.ring, this.orn, this.done);
+  _CounterRingPainter(this.progress, this.color, this.done);
 
   @override
   void paint(Canvas c, Size s) {
     final ctr = s.center(Offset.zero);
     final R = s.width / 2 - 5;
-    if (done) {
-      c.drawCircle(ctr, R + 2, Paint()
-        ..color = orn.withOpacity(0.5)
-        ..maskFilter = MaskFilter.blur(BlurStyle.normal, 7));
-    }
     c.drawCircle(ctr, R, Paint()
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 5.5
-      ..color = orn.withOpacity(0.25));
+      ..strokeWidth = 5
+      ..color = color.withOpacity(0.20));
     final pr = (done ? 1.0 : progress).clamp(0.0, 1.0).toDouble();
     if (pr > 0) {
       c.drawArc(Rect.fromCircle(center: ctr, radius: R), -math.pi / 2, 2 * math.pi * pr, false, Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 5.5
+        ..strokeWidth = 5
         ..strokeCap = StrokeCap.round
-        ..color = done ? orn : ring);
+        ..color = color);
     }
-    c.drawCircle(ctr, R + 4.2, Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.0
-      ..color = orn.withOpacity(0.75));
   }
 
   @override
-  bool shouldRepaint(covariant _CounterRingPainter old) => old.progress != progress || old.ring != ring || old.orn != orn || old.done != done;
+  bool shouldRepaint(covariant _CounterRingPainter old) => old.progress != progress || old.color != color || old.done != done;
 }
 
-// لوحة (خرطوشة) ذهبية أعلى المنتصف على الإطار، تحمل العدد المطلوب
-class _CartouchePainter extends CustomPainter {
-  final Color orn;
-  _CartouchePainter(this.orn);
+// فقاعة صغيرة شفافة تخرج من مكان اللمسة
+class _Bubble {
+  final double angle, dist, radius;
+  _Bubble(this.angle, this.dist, this.radius);
+}
+
+class _BubblePainter extends CustomPainter {
+  final Offset origin;
+  final double t;
+  final List<_Bubble> bubbles;
+  final Color color;
+  _BubblePainter(this.origin, this.t, this.bubbles, this.color);
+
   @override
   void paint(Canvas c, Size s) {
-    final w = s.width, h = s.height;
-    final dark = Color.lerp(orn, Colors.black, 0.5)!;
-    final light = Color.lerp(orn, Colors.white, 0.8)!;
-    final low = Color.lerp(orn, Colors.black, 0.22)!;
-    Path plaque(double i) => Path()
-      ..moveTo(i, h / 2)
-      ..lineTo(h * 0.55, i)
-      ..lineTo(w - h * 0.55, i)
-      ..lineTo(w - i, h / 2)
-      ..lineTo(w - h * 0.55, h - i)
-      ..lineTo(h * 0.55, h - i)
-      ..close();
-    final path = plaque(0);
-    c.drawShadow(path, Colors.black, 4, false);
-    final rect = Offset.zero & s;
-    c.drawPath(path, Paint()..shader = LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [light, orn, low], stops: [0.0, 0.55, 1.0]).createShader(rect));
-    c.drawPath(path, Paint()
-      ..color = dark
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.3);
-    c.drawPath(plaque(3.2), Paint()
-      ..color = dark.withOpacity(0.55)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 0.7);
-    for (final x in [h * 0.62, w - h * 0.62]) {
-      c.drawPath(_starPath(Offset(x, h / 2), 4.6), Paint()..color = dark);
-      c.drawCircle(Offset(x, h / 2), 1.1, Paint()..color = light);
+    if (t <= 0 || t >= 1) return;
+    final e = Curves.easeOutCubic.transform(t);
+    final a = (1 - t);
+    for (final b in bubbles) {
+      final pos = origin + Offset(math.cos(b.angle) * b.dist * e, math.sin(b.angle) * b.dist * e);
+      final r = b.radius * (0.8 + 0.5 * t);
+      c.drawCircle(pos, r, Paint()..color = color.withOpacity(0.22 * a));
+      c.drawCircle(pos, r, Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.2
+        ..color = color.withOpacity(0.70 * a));
+      // لمعة صغيرة على حافة الفقاعة
+      c.drawCircle(pos + Offset(-r * 0.35, -r * 0.35), r * 0.22, Paint()..color = Colors.white.withOpacity(0.55 * a));
     }
   }
 
   @override
-  bool shouldRepaint(covariant _CartouchePainter old) => old.orn != orn;
+  bool shouldRepaint(covariant _BubblePainter old) => old.t != t || old.origin != origin;
 }
 
 class CountBox extends StatefulWidget {
@@ -5089,48 +5081,27 @@ class CountBox extends StatefulWidget {
   State<CountBox> createState() => _CountBoxState();
 }
 
-// موجة ملوّنة تنتشر من مكان اللمسة
-class _RipplePainter extends CustomPainter {
-  final Offset pos;
-  final double t;
-  final Color color;
-  _RipplePainter(this.pos, this.t, this.color);
-  @override
-  void paint(Canvas c, Size s) {
-    if (t <= 0 || t >= 1) return;
-    final r = s.longestSide * Curves.easeOut.transform(t);
-    c.drawCircle(pos, r, Paint()..color = color.withOpacity(0.30 * (1 - t)));
-  }
-
-  @override
-  bool shouldRepaint(covariant _RipplePainter old) => old.t != t || old.pos != pos || old.color != color;
-}
-
 class _CountBoxState extends State<CountBox> with TickerProviderStateMixin {
-  late final AnimationController _c = AnimationController(vsync: this, duration: Duration(milliseconds: 280));
-  late final AnimationController _r = AnimationController(vsync: this, duration: Duration(milliseconds: 700));
-  late final AnimationController _s = AnimationController(vsync: this, duration: Duration(seconds: 6))..repeat(); // لمعان الإطار
+  late final AnimationController _c = AnimationController(vsync: this, duration: Duration(milliseconds: 360));
+  late final AnimationController _r = AnimationController(vsync: this, duration: Duration(milliseconds: 950));
+  // الصندوق يكبر شوي ثم يرجع
   late final Animation<double> _scale = TweenSequence<double>([
-    TweenSequenceItem(tween: Tween<double>(begin: 1.0, end: 1.035).chain(CurveTween(curve: Curves.easeOut)), weight: 40),
-    TweenSequenceItem(tween: Tween<double>(begin: 1.035, end: 1.0).chain(CurveTween(curve: Curves.easeInOut)), weight: 60),
-  ]).animate(_c);
-  // وهج قصير: تفتح الألوان عند الضغط ثم ترجع
-  late final Animation<double> _glow = TweenSequence<double>([
-    TweenSequenceItem(tween: Tween<double>(begin: 0.0, end: 1.0).chain(CurveTween(curve: Curves.easeOut)), weight: 25),
-    TweenSequenceItem(tween: Tween<double>(begin: 1.0, end: 0.0).chain(CurveTween(curve: Curves.easeInOut)), weight: 75),
+    TweenSequenceItem(tween: Tween<double>(begin: 1.0, end: 1.05).chain(CurveTween(curve: Curves.easeOut)), weight: 40),
+    TweenSequenceItem(tween: Tween<double>(begin: 1.05, end: 1.0).chain(CurveTween(curve: Curves.easeInOut)), weight: 60),
   ]).animate(_c);
   Offset _tapPos = Offset.zero;
-  bool _down = false;
+  List<_Bubble> _bubbles = [];
+  final math.Random _rnd = math.Random();
 
   @override
   void dispose() {
     _c.dispose();
     _r.dispose();
-    _s.dispose();
     super.dispose();
   }
 
   void _tap() {
+    _bubbles = List.generate(10, (_) => _Bubble(-math.pi / 2 + (_rnd.nextDouble() - 0.5) * math.pi * 1.7, 36 + _rnd.nextDouble() * 80, 3 + _rnd.nextDouble() * 6.5));
     _c.forward(from: 0);
     _r.forward(from: 0);
     if (widget.count + 1 == widget.target) {
@@ -5141,28 +5112,18 @@ class _CountBoxState extends State<CountBox> with TickerProviderStateMixin {
     widget.onTap();
   }
 
-  // اللون يتغيّر مع التقدّم: أزرق هادئ ← ذهبي دافئ ← أخضر عند الإتمام
-  Color _colorFor(double p, bool dark) {
-    final a = dark ? Color(0xFF6EC1E4) : Color(0xFF2B7A9B);
-    final b = dark ? Color(0xFFFFC66B) : Color(0xFFE08A1E);
-    final g = dark ? Color(0xFF4FD08A) : Color(0xFF2E9B5F);
-    if (p < 0.5) return Color.lerp(a, b, p / 0.5)!;
-    return Color.lerp(b, g, (p - 0.5) / 0.5)!;
-  }
-
   @override
   Widget build(BuildContext context) {
     final dark = isDark(context);
     final done = widget.count >= widget.target;
     final prog = (widget.count / widget.target).clamp(0.0, 1.0).toDouble();
-    final inner = paperColor(context); // داخل سادة تماماً ليبرز النص
+    final theme = dark ? lighten(0.30) : green; // لون الثيم
+    final dur = Duration(milliseconds: 600);
     return ScaleTransition(
       scale: _scale,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onTapDown: (_) => setState(() => _down = true),
-        onTapUp: (_) => setState(() => _down = false),
-        onTapCancel: () => setState(() => _down = false),
+        onTapDown: (d) => _tapPos = d.localPosition,
         onTap: _tap,
         child: Padding(
           padding: EdgeInsets.fromLTRB(10, 20, 10, 12),
@@ -5171,39 +5132,41 @@ class _CountBoxState extends State<CountBox> with TickerProviderStateMixin {
             duration: Duration(milliseconds: 600),
             curve: Curves.easeOutCubic,
             child: widget.child,
-            builder: (context, p, child) => AnimatedBuilder(
-              animation: _glow,
-              builder: (context, _) {
-                final g = math.max(_glow.value, _down ? 1.0 : 0.0);
-                final ring = dark ? lighten(0.35) : green; // لون التقدّم من لون التطبيق
-                final orn = Color.lerp(dark ? Color(0xFFE9C66B) : Color(0xFFC9A047), Colors.white, 0.30 * g)!;
-                // بعد إتمام العدد يتحوّل الإطار كله إلى الأخضر
-                final okGreen = Color.lerp(dark ? Color(0xFF4FD08A) : Color(0xFF2E9B5F), Colors.white, 0.20 * g)!;
-                final frameOrn = done ? okGreen : orn;
-                return Stack(clipBehavior: Clip.none, children: [
-                  // الصندوق: داخل سادة + ظل ناعم
-                  Container(
-                    decoration: BoxDecoration(
-                      color: inner,
-                      borderRadius: BorderRadius.circular(26),
-                      boxShadow: [
-                        BoxShadow(color: (done ? okGreen : Colors.black).withOpacity(done ? 0.40 : (dark ? 0.35 : 0.14)), blurRadius: done ? 24 : 12, offset: Offset(0, 5)),
-                      ],
+            builder: (context, p, child) {
+              return Stack(clipBehavior: Clip.none, children: [
+                // الصندوق: شفاف بلون الثيم، زاهٍ في البداية وباهت عند الإتمام
+                AnimatedContainer(
+                  duration: dur,
+                  curve: Curves.easeOut,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topRight,
+                      end: Alignment.bottomLeft,
+                      colors: done
+                          ? [theme.withOpacity(0.08), theme.withOpacity(0.03)]
+                          : [theme.withOpacity(dark ? 0.38 : 0.30), theme.withOpacity(dark ? 0.16 : 0.12)],
                     ),
+                    borderRadius: BorderRadius.circular(24),
+                    border: Border.all(color: theme.withOpacity(done ? 0.30 : 0.95), width: done ? 1.2 : 1.8),
+                    boxShadow: [BoxShadow(color: theme.withOpacity(done ? 0.0 : 0.30), blurRadius: done ? 0 : 16, offset: Offset(0, 4))],
+                  ),
+                  child: AnimatedOpacity(
+                    duration: dur,
+                    opacity: done ? 0.62 : 1.0,
                     child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                       Padding(
-                        padding: EdgeInsets.fromLTRB(26, 28, 26, 0),
+                        padding: EdgeInsets.fromLTRB(22, 26, 22, 0),
                         child: Row(children: [
                           SizedBox(
                             width: 64,
                             height: 64,
                             child: Stack(alignment: Alignment.center, children: [
-                              SizedBox.expand(child: CustomPaint(painter: _CounterRingPainter(p, ring, frameOrn, done))),
+                              SizedBox.expand(child: CustomPaint(painter: _CounterRingPainter(p, theme, done))),
                               AnimatedSwitcher(
                                 duration: Duration(milliseconds: 220),
                                 transitionBuilder: (w, a) => ScaleTransition(scale: a, child: FadeTransition(opacity: a, child: w)),
                                 child: done
-                                    ? Icon(Icons.check_rounded, key: ValueKey('done'), size: 30, color: readAccent(context))
+                                    ? Icon(Icons.check_rounded, key: ValueKey('done'), size: 32, color: theme)
                                     : SizedBox(
                                         key: ValueKey(widget.count),
                                         width: 34,
@@ -5224,7 +5187,7 @@ class _CountBoxState extends State<CountBox> with TickerProviderStateMixin {
                               ),
                               Text(
                                 done ? 'تقبّل الله طاعتك' : (widget.count == 0 ? 'المطلوب ${_timesText(widget.target)}' : 'باقي ${widget.target - widget.count}'),
-                                style: TextStyle(fontSize: 12.5, color: readInk(context).withOpacity(0.65), height: 1.4),
+                                style: TextStyle(fontSize: 12.5, color: readInk(context).withOpacity(0.70), height: 1.4),
                               ),
                             ]),
                           ),
@@ -5234,45 +5197,61 @@ class _CountBoxState extends State<CountBox> with TickerProviderStateMixin {
                               customBorder: CircleBorder(),
                               child: Container(
                                 padding: EdgeInsets.all(8),
-                                decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: frameOrn, width: 1.2)),
+                                decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: theme.withOpacity(0.7), width: 1.2)),
                                 child: Icon(Icons.restart_alt, size: 20, color: readAccent(context)),
                               ),
                             ),
                         ]),
                       ),
-                      Padding(padding: EdgeInsets.fromLTRB(30, 12, 30, 0), child: Container(height: 1, color: frameOrn.withOpacity(0.35))),
-                      Padding(padding: EdgeInsets.fromLTRB(26, 10, 26, 28), child: child),
+                      Padding(padding: EdgeInsets.fromLTRB(26, 12, 26, 0), child: Container(height: 1, color: theme.withOpacity(0.30))),
+                      Padding(padding: EdgeInsets.fromLTRB(24, 10, 24, 26), child: child),
                     ]),
                   ),
-                  // إطار الزخرفة (ثابت: شريط + تقدّم)
-                  Positioned.fill(child: IgnorePointer(child: RepaintBoundary(child: CustomPaint(painter: _BandPainter(p, g, ring, frameOrn, done))))),
-                  // لمعان متحرك حول الإطار
-                  Positioned.fill(
-                    child: IgnorePointer(
-                      child: RepaintBoundary(
-                        child: AnimatedBuilder(animation: _s, builder: (_, __) => CustomPaint(painter: _ShimmerPainter(_s.value, done))),
-                      ),
+                ),
+                // الفقاعات الشفافة تخرج من مكان الضغط
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: AnimatedBuilder(
+                      animation: _r,
+                      builder: (_, __) => CustomPaint(painter: _BubblePainter(_tapPos, _r.value, _bubbles, theme)),
                     ),
                   ),
-                  // لوحة ذهبية أعلى المنتصف
-                  Positioned(
-                    top: -15,
-                    left: 0,
-                    right: 0,
-                    child: Center(
-                      child: SizedBox(
-                        width: 118,
-                        height: 30,
-                        child: CustomPaint(
-                          painter: _CartouchePainter(frameOrn),
-                          child: Center(child: Text(_timesText(widget.target), style: TextStyle(fontSize: 13, fontWeight: FontWeight.w900, color: done ? Color(0xFF0B3B22) : Color(0xFF3B2A06), height: 1.1))),
-                        ),
+                ),
+                // لوحة العدد المطلوب أعلى المنتصف
+                Positioned(
+                  top: -14,
+                  left: 0,
+                  right: 0,
+                  child: Center(
+                    child: Container(
+                      padding: EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: paperColor(context),
+                        borderRadius: BorderRadius.circular(18),
+                        border: Border.all(color: theme.withOpacity(done ? 0.35 : 0.95), width: 1.4),
                       ),
+                      child: Text(_timesText(widget.target), style: TextStyle(fontSize: 13, fontWeight: FontWeight.w900, color: readAccent(context), height: 1.3)),
                     ),
                   ),
-                ]);
-              },
-            ),
+                ),
+                // علامة الإتمام
+                PositionedDirectional(
+                  top: -12,
+                  end: 14,
+                  child: AnimatedScale(
+                    scale: done ? 1.0 : 0.0,
+                    duration: Duration(milliseconds: 350),
+                    curve: Curves.elasticOut,
+                    child: Container(
+                      width: 30,
+                      height: 30,
+                      decoration: BoxDecoration(shape: BoxShape.circle, color: theme, border: Border.all(color: Colors.white, width: 1.6)),
+                      child: Icon(Icons.check_rounded, color: Colors.white, size: 20),
+                    ),
+                  ),
+                ),
+              ]);
+            },
           ),
         ),
       ),
