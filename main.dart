@@ -938,36 +938,42 @@ class AwradPage extends StatelessWidget {
             onTap: () => Navigator.push(context, SoftRoute(builder: (_) => PrayerChallengePage())),
           ),
           SectionTile(
+            shade: 0.0,
             title: 'كتاب أوراد الطريقة',
             subtitle: 'الكتاب الكامل مع فهرس العناوين',
             icon: Icons.menu_book_rounded,
             onTap: () => Navigator.push(context, SoftRoute(builder: (_) => BookIndexPage())),
           ),
           SectionTile(
+            shade: 0.2,
             title: 'المسبعات',
             subtitle: 'النص الكامل',
             icon: Icons.format_list_numbered,
             onTap: () => openText(context, 'المسبعات', 'assets/texts/musabbaat.txt', false),
           ),
           SectionTile(
+            shade: 0.4,
             title: 'الصلوات الدرديرية',
             subtitle: 'النص الكامل',
             icon: Icons.volunteer_activism,
             onTap: () => openText(context, 'الصلوات الدرديرية', 'assets/texts/salawat_dardiriyya.txt', false),
           ),
           SectionTile(
+            shade: 0.6,
             title: 'المنظومة',
             subtitle: 'القصيدة كاملة',
             icon: Icons.library_books,
             onTap: () => openText(context, 'المنظومة', 'assets/texts/manzuma.txt', true),
           ),
           SectionTile(
+            shade: 0.8,
             title: 'دعاء الختام',
             subtitle: 'النص كاملاً',
             icon: Icons.auto_awesome,
             onTap: () => openTextString(context, 'دعاء الختام', duaKhatmText),
           ),
           SectionTile(
+            shade: 1.0,
             title: 'حزب البحر',
             subtitle: 'النص كاملاً',
             icon: Icons.waves,
@@ -1019,7 +1025,8 @@ class SectionTile extends StatefulWidget {
   final IconData icon;
   final VoidCallback? onTap;
   final bool highlight; // لوحة ذهبية للقسم المميز
-  const SectionTile({super.key, required this.title, required this.subtitle, required this.icon, required this.onTap, this.highlight = false});
+  final double shade; // 0 = أفتح درجة من لون الثيم، 1 = أغمق درجة (تدرّج على مستوى القائمة)
+  const SectionTile({super.key, required this.title, required this.subtitle, required this.icon, required this.onTap, this.highlight = false, this.shade = 0});
   @override
   State<SectionTile> createState() => _SectionTileState();
 }
@@ -1056,7 +1063,12 @@ class _SectionTileState extends State<SectionTile> {
     final dark = isDark(context);
     const goldLight = Color(0xFFF2DE9F);
     final hl = widget.highlight;
-    final bg = hl ? [Color(0xFFF7E8B5), gold] : (dark ? [deepDark, deepGreen2] : [deepGreen, green2]);
+    final sh = widget.shade.clamp(0.0, 1.0).toDouble();
+    final List<Color> bg = hl
+        ? [Color(0xFFF7E8B5), gold]
+        : (dark
+            ? [Color.lerp(deepGreen, deepDark, sh)!, Color.lerp(deepGreen2, deepDark2, sh)!]
+            : [Color.lerp(lighten(0.06), deepGreen, sh)!, Color.lerp(green2, deepDark, sh * 0.9)!]);
     final titleColor = hl ? deepGreen : goldLight;
     final subColor = hl ? deepGreen.withOpacity(0.80) : Colors.white70;
     return GestureDetector(
@@ -1224,8 +1236,8 @@ class _PrayerChallengePageState extends State<PrayerChallengePage> {
         1,
         particle: Icons.favorite_rounded,
         palette: [Color(0xFFFF6B8A), Color(0xFFFF9EB5), Color(0xFFE63E6D), gold],
-        title: 'ما شاء الله، أتممت تحدي اليوم!',
-        body: _streak > 1 ? 'أيام متتالية: $_streak. تقبّل الله منك وجعله في ميزان حسناتك.' : 'تقبّل الله منك وجعله في ميزان حسناتك.',
+        title: 'أبشر، أنت محبوب عند الله ورسوله ﷺ',
+        body: 'فلا يوفَّق لهذا العمل إلا محبوب.\nأتممت تحدي اليوم كاملاً، تقبّل الله منك.${_streak > 1 ? '\nأيام متتالية: $_streak' : ''}',
       );
     }
   }
@@ -2460,27 +2472,31 @@ class MasbahaPage extends StatelessWidget {
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(title: Text('المسبحة')),
         body: ListView(padding: EdgeInsets.all(16), children: [
-          for (final w in wirdDefs) ...[
+          for (int wi = 0; wi < wirdDefs.length; wi++) ...[
             SectionTile(
-              title: w.title,
+              shade: wi * 0.25,
+              title: wirdDefs[wi].title,
               subtitle: 'اضغط لعرض المهام وعدّاد المسبحة',
-              icon: w.icon,
-              onTap: () => Navigator.push(context, SoftRoute(builder: (_) => WirdPage(def: w))),
+              icon: wirdDefs[wi].icon,
+              onTap: () => Navigator.push(context, SoftRoute(builder: (_) => WirdPage(def: wirdDefs[wi]))),
             ),
           ],
           SectionTile(
+            shade: 0.5,
             title: namesDef.title,
             subtitle: 'لا إله إلا الله • الله • هو • حق • حي • قيوم • قهار',
             icon: namesDef.icon,
             onTap: () => Navigator.push(context, SoftRoute(builder: (_) => WirdPage(def: namesDef))),
           ),
           SectionTile(
+            shade: 0.75,
             title: 'الإحصائيات',
             subtitle: 'الأيام المتتالية وعدد الأذكار',
             icon: Icons.bar_chart_rounded,
             onTap: () => Navigator.push(context, SoftRoute(builder: (_) => StatsPage())),
           ),
           SectionTile(
+            shade: 1.0,
             title: 'سجل الإنجازات',
             subtitle: 'الأذكار التي أكملتها',
             icon: Icons.history,
@@ -5037,39 +5053,44 @@ class _CounterRingPainter extends CustomPainter {
   bool shouldRepaint(covariant _CounterRingPainter old) => old.progress != progress || old.color != color || old.done != done;
 }
 
-// فقاعة صغيرة شفافة تخرج من مكان اللمسة
+// فقاعة صغيرة شفافة تخرج من أي مكان في الصندوق (الموضع نسبة من حجم الصندوق)
 class _Bubble {
-  final double angle, dist, radius;
-  _Bubble(this.angle, this.dist, this.radius);
+  final double fx, fy, dist, radius, delay;
+  _Bubble(this.fx, this.fy, this.dist, this.radius, this.delay);
 }
 
 class _BubblePainter extends CustomPainter {
-  final Offset origin;
   final double t;
   final List<_Bubble> bubbles;
   final Color color;
-  _BubblePainter(this.origin, this.t, this.bubbles, this.color);
+  _BubblePainter(this.t, this.bubbles, this.color);
 
   @override
   void paint(Canvas c, Size s) {
     if (t <= 0 || t >= 1) return;
-    final e = Curves.easeOutCubic.transform(t);
-    final a = (1 - t);
+    final center = Offset(s.width / 2, s.height / 2);
     for (final b in bubbles) {
-      final pos = origin + Offset(math.cos(b.angle) * b.dist * e, math.sin(b.angle) * b.dist * e);
-      final r = b.radius * (0.8 + 0.5 * t);
-      c.drawCircle(pos, r, Paint()..color = color.withOpacity(0.22 * a));
+      final lt = ((t - b.delay) / (1 - b.delay)).clamp(0.0, 1.0).toDouble();
+      if (lt <= 0 || lt >= 1) continue;
+      final e = Curves.easeOutCubic.transform(lt);
+      final a = 1 - lt;
+      final origin = Offset(b.fx * s.width, b.fy * s.height);
+      // تتحرك للخارج بعيداً عن مركز الصندوق مع ميل خفيف للأعلى
+      var dir = origin - center;
+      dir = dir.distance < 1 ? Offset(0, -1) : dir / dir.distance;
+      final pos = origin + Offset(dir.dx * b.dist * e, dir.dy * b.dist * e - 26 * e);
+      final r = b.radius * (0.8 + 0.5 * lt);
+      c.drawCircle(pos, r, Paint()..color = color.withOpacity(0.20 * a));
       c.drawCircle(pos, r, Paint()
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.2
-        ..color = color.withOpacity(0.70 * a));
-      // لمعة صغيرة على حافة الفقاعة
+        ..color = color.withOpacity(0.65 * a));
       c.drawCircle(pos + Offset(-r * 0.35, -r * 0.35), r * 0.22, Paint()..color = Colors.white.withOpacity(0.55 * a));
     }
   }
 
   @override
-  bool shouldRepaint(covariant _BubblePainter old) => old.t != t || old.origin != origin;
+  bool shouldRepaint(covariant _BubblePainter old) => old.t != t;
 }
 
 class CountBox extends StatefulWidget {
@@ -5089,7 +5110,6 @@ class _CountBoxState extends State<CountBox> with TickerProviderStateMixin {
     TweenSequenceItem(tween: Tween<double>(begin: 1.0, end: 1.05).chain(CurveTween(curve: Curves.easeOut)), weight: 40),
     TweenSequenceItem(tween: Tween<double>(begin: 1.05, end: 1.0).chain(CurveTween(curve: Curves.easeInOut)), weight: 60),
   ]).animate(_c);
-  Offset _tapPos = Offset.zero;
   List<_Bubble> _bubbles = [];
   final math.Random _rnd = math.Random();
 
@@ -5101,7 +5121,7 @@ class _CountBoxState extends State<CountBox> with TickerProviderStateMixin {
   }
 
   void _tap() {
-    _bubbles = List.generate(10, (_) => _Bubble(-math.pi / 2 + (_rnd.nextDouble() - 0.5) * math.pi * 1.7, 36 + _rnd.nextDouble() * 80, 3 + _rnd.nextDouble() * 6.5));
+    _bubbles = List.generate(18, (_) => _Bubble(_rnd.nextDouble(), _rnd.nextDouble(), 24 + _rnd.nextDouble() * 60, 3 + _rnd.nextDouble() * 6.5, _rnd.nextDouble() * 0.35));
     _c.forward(from: 0);
     _r.forward(from: 0);
     if (widget.count + 1 == widget.target) {
@@ -5123,7 +5143,6 @@ class _CountBoxState extends State<CountBox> with TickerProviderStateMixin {
       scale: _scale,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onTapDown: (d) => _tapPos = d.localPosition,
         onTap: _tap,
         child: Padding(
           padding: EdgeInsets.fromLTRB(10, 20, 10, 12),
@@ -5143,12 +5162,13 @@ class _CountBoxState extends State<CountBox> with TickerProviderStateMixin {
                       begin: Alignment.topRight,
                       end: Alignment.bottomLeft,
                       colors: done
-                          ? [theme.withOpacity(0.08), theme.withOpacity(0.03)]
-                          : [theme.withOpacity(dark ? 0.38 : 0.30), theme.withOpacity(dark ? 0.16 : 0.12)],
+                          ? [theme.withOpacity(0.05), theme.withOpacity(0.02), theme.withOpacity(0.04)]
+                          : [theme.withOpacity(dark ? 0.22 : 0.17), theme.withOpacity(dark ? 0.08 : 0.06), theme.withOpacity(dark ? 0.16 : 0.12)],
+                      stops: [0.0, 0.55, 1.0],
                     ),
                     borderRadius: BorderRadius.circular(24),
-                    border: Border.all(color: theme.withOpacity(done ? 0.30 : 0.95), width: done ? 1.2 : 1.8),
-                    boxShadow: [BoxShadow(color: theme.withOpacity(done ? 0.0 : 0.30), blurRadius: done ? 0 : 16, offset: Offset(0, 4))],
+                    border: Border.all(color: theme.withOpacity(done ? 0.25 : 0.60), width: done ? 1.1 : 1.5),
+                    boxShadow: [BoxShadow(color: theme.withOpacity(done ? 0.0 : 0.16), blurRadius: done ? 0 : 18, offset: Offset(0, 4))],
                   ),
                   child: AnimatedOpacity(
                     duration: dur,
@@ -5213,7 +5233,7 @@ class _CountBoxState extends State<CountBox> with TickerProviderStateMixin {
                   child: IgnorePointer(
                     child: AnimatedBuilder(
                       animation: _r,
-                      builder: (_, __) => CustomPaint(painter: _BubblePainter(_tapPos, _r.value, _bubbles, theme)),
+                      builder: (_, __) => CustomPaint(painter: _BubblePainter(_r.value, _bubbles, theme)),
                     ),
                   ),
                 ),
