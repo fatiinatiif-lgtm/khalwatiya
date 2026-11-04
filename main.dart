@@ -931,6 +931,12 @@ class AwradPage extends StatelessWidget {
         appBar: AppBar(title: Text('الأوراد')),
         body: ListView(padding: EdgeInsets.all(16), children: _stagger([
           FancyCard(
+            title: 'تحدي ما بعد الصلاة',
+            subtitle: 'المسبعات والدرديرية والمنظومة بعد كل صلاة',
+            icon: Icons.emoji_events_rounded,
+            onTap: () => Navigator.push(context, SoftRoute(builder: (_) => PrayerChallengePage())),
+          ),
+          FancyCard(
             title: 'كتاب أوراد الطريقة',
             subtitle: 'الكتاب الكامل مع فهرس العناوين',
             icon: Icons.menu_book_rounded,
@@ -1004,6 +1010,318 @@ class SectionCard extends StatelessWidget {
           ),
         ),
       );
+}
+
+// ===================== تحدي ما بعد الصلاة =====================
+// بعد كل صلاة من الخمس: قراءة المسبعات والصلوات الدرديرية والمنظومة، ويُحفظ التقدّم لكل يوم
+const List<int> challengePrayers = [0, 2, 3, 4, 5]; // الفجر، الظهر، العصر، المغرب، العشاء (دون الشروق)
+
+class _ChItem {
+  final String title, asset;
+  final bool poem;
+  final IconData icon;
+  const _ChItem(this.title, this.asset, this.poem, this.icon);
+}
+
+const List<_ChItem> challengeItems = [
+  _ChItem('المسبعات', 'assets/texts/musabbaat.txt', false, Icons.format_list_numbered),
+  _ChItem('الصلوات الدرديرية', 'assets/texts/salawat_dardiriyya.txt', false, Icons.volunteer_activism),
+  _ChItem('المنظومة', 'assets/texts/manzuma.txt', true, Icons.library_books),
+];
+
+class PrayerChallengePage extends StatefulWidget {
+  const PrayerChallengePage({super.key});
+  @override
+  State<PrayerChallengePage> createState() => _PrayerChallengePageState();
+}
+
+class _PrayerChallengePageState extends State<PrayerChallengePage> {
+  final Set<String> _done = {};
+  int _streak = 0, _fullDays = 0;
+  bool _loaded = false;
+
+  int get _total => challengePrayers.length * challengeItems.length;
+  String get _key => 'ch_${todayKey()}';
+  String _dayKey(DateTime d) => '${d.year}-${_two(d.month)}-${_two(d.day)}';
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final p = await SharedPreferences.getInstance();
+    final today = p.getStringList(_key) ?? [];
+    final n = DateTime.now();
+    int streak = 0;
+    for (int i = 0; i < 1000; i++) {
+      final d = DateTime(n.year, n.month, n.day - i);
+      final full = (p.getStringList('ch_${_dayKey(d)}') ?? []).length >= _total;
+      if (i == 0 && !full) continue; // اليوم لم يكتمل بعد، لا يقطع السلسلة
+      if (full) {
+        streak++;
+      } else {
+        break;
+      }
+    }
+    int fullDays = 0;
+    for (final k in p.getKeys()) {
+      if (k.startsWith('ch_') && (p.getStringList(k) ?? []).length >= _total) fullDays++;
+    }
+    if (!mounted) return;
+    setState(() {
+      _done
+        ..clear()
+        ..addAll(today);
+      _streak = streak;
+      _fullDays = fullDays;
+      _loaded = true;
+    });
+  }
+
+  bool _prayerDone(int pi) => [for (int i = 0; i < challengeItems.length; i++) _done.contains('$pi-$i')].every((e) => e);
+
+  Future<void> _toggle(int pi, int ii) async {
+    final k = '$pi-$ii';
+    final wasDone = _done.contains(k);
+    final prayerWasDone = _prayerDone(pi);
+    final dayWasDone = _done.length >= _total;
+    setState(() {
+      if (wasDone) {
+        _done.remove(k);
+      } else {
+        _done.add(k);
+      }
+    });
+    HapticFeedback.selectionClick();
+    final p = await SharedPreferences.getInstance();
+    await p.setStringList(_key, _done.toList());
+    if (!wasDone && !prayerWasDone && _prayerDone(pi)) {
+      await addLog('تحدي ما بعد الصلاة', 'إتمام تحدي ما بعد ${prayerNames[challengePrayers[pi]]}', 1);
+    }
+    await _load();
+    if (!wasDone && !dayWasDone && _done.length >= _total && mounted) {
+      HapticFeedback.heavyImpact();
+      showCelebration(
+        context,
+        'تحدي ما بعد الصلاة',
+        1,
+        particle: Icons.favorite_rounded,
+        palette: [Color(0xFFFF6B8A), Color(0xFFFF9EB5), Color(0xFFE63E6D), gold],
+        title: 'ما شاء الله، أتممت تحدي اليوم!',
+        body: _streak > 1 ? 'أيام متتالية: $_streak. تقبّل الله منك وجعله في ميزان حسناتك.' : 'تقبّل الله منك وجعله في ميزان حسناتك.',
+      );
+    }
+  }
+
+  Future<void> _open(int pi, int ii) async {
+    final it = challengeItems[ii];
+    final text = await rootBundle.loadString(it.asset);
+    if (!mounted) return;
+    await Navigator.push(context, SoftRoute(builder: (_) => TextReaderPage(title: it.title, text: text, poem: it.poem)));
+    if (!mounted || _done.contains('$pi-$ii')) return;
+    final m = ScaffoldMessenger.of(context);
+    m.clearSnackBars();
+    m.showSnackBar(SnackBar(
+      content: Text('هل أتممت ${it.title} بعد ${prayerNames[challengePrayers[pi]]}؟'),
+      action: SnackBarAction(label: 'تمّت', onPressed: () => _toggle(pi, ii)),
+      duration: Duration(seconds: 7),
+    ));
+  }
+
+  Future<void> _resetToday() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('تصفير تحدي اليوم؟'),
+        content: Text('ستُمسح علامات اليوم كلها لتبدأ من جديد.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text('إلغاء')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text('تصفير')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    final p = await SharedPreferences.getInstance();
+    await p.remove(_key);
+    await _load();
+  }
+
+  Color _ok(bool dark) => dark ? Color(0xFF4FD08A) : Color(0xFF2E9B5F);
+
+  Widget _summary() {
+    final n = _done.length;
+    Widget pill(IconData ic, String t) => Container(
+          padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(color: Colors.black.withOpacity(0.18), borderRadius: BorderRadius.circular(20), border: Border.all(color: gold.withOpacity(0.55))),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(ic, size: 18, color: Color(0xFFF2DE9F)),
+            SizedBox(width: 6),
+            Text(t, style: TextStyle(color: Colors.white, fontSize: 13.5, fontWeight: FontWeight.w700)),
+          ]),
+        );
+    return Container(
+      padding: EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(begin: Alignment.topRight, end: Alignment.bottomLeft, colors: [lighten(0.08), deepGreen2]),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: gold, width: 1.4),
+        boxShadow: [BoxShadow(color: green.withOpacity(0.35), blurRadius: 16, offset: Offset(0, 6))],
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Row(children: [
+          Expanded(child: Text('تحدي ما بعد الصلاة', style: TextStyle(fontFamily: 'Rsail', fontSize: 26, height: 1.4, color: Color(0xFFF2DE9F), fontWeight: FontWeight.w700))),
+          Text('$n / $_total', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w900)),
+        ]),
+        SizedBox(height: 4),
+        Text('المسبعات والصلوات الدرديرية والمنظومة بعد كل صلاة', style: TextStyle(color: Colors.white70, fontSize: 13, height: 1.5)),
+        SizedBox(height: 12),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(10),
+          child: TweenAnimationBuilder<double>(
+            tween: Tween<double>(begin: 0, end: n / _total),
+            duration: Duration(milliseconds: 500),
+            curve: Curves.easeOutCubic,
+            builder: (_, v, __) => LinearProgressIndicator(value: v, minHeight: 10, backgroundColor: Colors.white24, valueColor: AlwaysStoppedAnimation<Color>(gold)),
+          ),
+        ),
+        SizedBox(height: 12),
+        Wrap(spacing: 8, runSpacing: 8, children: [
+          pill(Icons.local_fire_department_rounded, 'أيام متتالية: $_streak'),
+          pill(Icons.emoji_events_rounded, 'أيام كاملة: $_fullDays'),
+        ]),
+      ]),
+    );
+  }
+
+  Widget _itemRow(int pi, int ii) {
+    final dark = isDark(context);
+    final it = challengeItems[ii];
+    final on = _done.contains('$pi-$ii');
+    final ok = _ok(dark);
+    return Padding(
+      padding: EdgeInsets.only(top: 8),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: () => _open(pi, ii),
+        child: AnimatedContainer(
+          duration: Duration(milliseconds: 220),
+          padding: EdgeInsetsDirectional.fromSTEB(12, 8, 8, 8),
+          decoration: BoxDecoration(
+            color: on ? ok.withOpacity(0.12) : softBg(context),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: on ? ok.withOpacity(0.75) : gold.withOpacity(0.35), width: 1.2),
+          ),
+          child: Row(children: [
+            Icon(it.icon, color: on ? ok : accent(context), size: 22),
+            SizedBox(width: 10),
+            Expanded(child: Text(it.title, style: TextStyle(fontSize: 16.5, fontWeight: FontWeight.w700, color: ink(context)))),
+            Icon(Icons.menu_book_rounded, size: 18, color: ink(context).withOpacity(0.45)),
+            SizedBox(width: 6),
+            InkWell(
+              customBorder: CircleBorder(),
+              onTap: () => _toggle(pi, ii),
+              child: Padding(
+                padding: EdgeInsets.all(4),
+                child: AnimatedContainer(
+                  duration: Duration(milliseconds: 220),
+                  width: 34,
+                  height: 34,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: on ? ok : Colors.transparent,
+                    border: Border.all(color: on ? ok : gold.withOpacity(0.85), width: 1.6),
+                  ),
+                  child: on ? Icon(Icons.check_rounded, color: Colors.white, size: 22) : null,
+                ),
+              ),
+            ),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  Widget _prayerCard(int pi, DateTime time, bool current) {
+    final dark = isDark(context);
+    final idx = challengePrayers[pi];
+    final done = _prayerDone(pi);
+    final cnt = [for (int i = 0; i < challengeItems.length; i++) _done.contains('$pi-$i')].where((e) => e).length;
+    final ok = _ok(dark);
+    final line = done ? ok : gold;
+    return Container(
+      margin: EdgeInsets.only(bottom: 14),
+      padding: EdgeInsets.fromLTRB(14, 12, 14, 14),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topRight,
+          end: Alignment.bottomLeft,
+          colors: dark ? [darkTint(0.18), darkTint(0.08)] : [Colors.white, tint(0.10)],
+        ),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: line.withOpacity(current || done ? 0.95 : 0.6), width: current ? 2.0 : 1.3),
+        boxShadow: [BoxShadow(color: (current ? gold : (dark ? Colors.black : green)).withOpacity(current ? 0.35 : (dark ? 0.35 : 0.12)), blurRadius: current ? 18 : 12, offset: Offset(0, 5))],
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Row(children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(begin: Alignment.topRight, end: Alignment.bottomLeft, colors: done ? [ok, ok.withOpacity(0.75)] : [lighten(0.12), deepGreen2]),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: gold, width: 1.4),
+            ),
+            child: Icon(done ? Icons.check_rounded : prayerIcons[idx], color: Colors.white, size: 24),
+          ),
+          SizedBox(width: 12),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(children: [
+                Text('بعد ${prayerNames[idx]}', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800, color: accent(context))),
+                if (current) ...[
+                  SizedBox(width: 8),
+                  Container(
+                    padding: EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(color: gold.withOpacity(0.25), borderRadius: BorderRadius.circular(10), border: Border.all(color: gold)),
+                    child: Text('الآن', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w800, color: ink(context))),
+                  ),
+                ],
+              ]),
+              Text('${_fmt12(time)} ${_ampm(time)}', style: TextStyle(fontSize: 12.5, color: ink(context).withOpacity(0.65))),
+            ]),
+          ),
+          Text('$cnt / ${challengeItems.length}', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: done ? ok : accent(context))),
+        ]),
+        for (int i = 0; i < challengeItems.length; i++) _itemRow(pi, i),
+      ]),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final now = appNow();
+    final times = prayerTimesFor(now);
+    int cur = -1;
+    for (int pi = 0; pi < challengePrayers.length; pi++) {
+      if (!times[challengePrayers[pi]].isAfter(now)) cur = pi;
+    }
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('تحدي ما بعد الصلاة'),
+        actions: [IconButton(tooltip: 'تصفير اليوم', onPressed: _resetToday, icon: Icon(Icons.restart_alt))],
+      ),
+      body: !_loaded
+          ? Center(child: CircularProgressIndicator())
+          : ListView(padding: EdgeInsets.all(16), children: [
+              _summary(),
+              SizedBox(height: 16),
+              for (int pi = 0; pi < challengePrayers.length; pi++) _prayerCard(pi, times[challengePrayers[pi]], pi == cur),
+              Text('اضغط على الاسم لفتح النص، وعلى الدائرة لتأشير الإتمام. ويُحفظ تقدّمك لكل يوم.', textAlign: TextAlign.center, style: TextStyle(fontSize: 12.5, height: 1.7, color: ink(context).withOpacity(0.6))),
+            ]),
+    );
+  }
 }
 
 void openTextString(BuildContext context, String title, String text) {
@@ -3065,7 +3383,7 @@ bool _hasHighlight(String w) {
   return false;
 }
 
-// اسم "محمد" (بأي تشكيل أو تنوين، ومع و/ف/ب/ل/ك في أوله): أخضر ويخرج منه نور
+// اسم "محمد" (بأي تشكيل أو تنوين، ومع و/ف/ب/ل/ك في أوله): أخضر فقط
 bool _isMuhammad(String w) {
   final n = _normWord(w);
   if (n.length < 4) return false;
@@ -3081,12 +3399,6 @@ TextStyle muhammadStyle(BuildContext c, TextStyle st) {
   final dark = isDark(c);
   return st.copyWith(
     color: dark ? const Color(0xFF69F0AE) : const Color(0xFF0B8F4D),
-    // الظل لا يغيّر عرض الكلمة، فلا يتأثر ضبط السطر بالكشيدة
-    shadows: [
-      Shadow(color: (dark ? const Color(0xFF00E676) : const Color(0xFF2ECC71)).withOpacity(0.95), blurRadius: 8),
-      Shadow(color: (dark ? const Color(0xFFB9F6CA) : const Color(0xFFFFD86B)).withOpacity(0.80), blurRadius: 18),
-      Shadow(color: (dark ? const Color(0xFF00E676) : const Color(0xFFFFE08A)).withOpacity(0.40), blurRadius: 30),
-    ],
   );
 }
 
@@ -4540,73 +4852,107 @@ Path _framePath(Rect rc, double r) {
   return p;
 }
 
-const double _bandW = 11.0; // سُمك شريط الإطار
+const double _bandW = 9.0; // سُمك شريط الإطار
 
-// شريط الإطار: مسار ذهبي مرصّع بالمعيّنات، يمتلئ بلون التقدّم حول الصندوق مع كل ضغطة
+// إطار أنيق: خطّان ذهبيان رفيعان بينهما شريط تقدّم دقيق ولآلئ صغيرة، وميداليات ناعمة في الأركان ومنتصف الأضلاع
 class _BandPainter extends CustomPainter {
   final double progress, glow;
   final Color fill, orn;
   final bool done;
   _BandPainter(this.progress, this.glow, this.fill, this.orn, this.done);
 
+  void _medal(Canvas c, Offset o, Color dark, Color light) {
+    c.drawCircle(o, 10.5, Paint()..shader = RadialGradient(colors: [light, orn], stops: [0.0, 1.0]).createShader(Rect.fromCircle(center: o, radius: 10.5)));
+    c.drawCircle(o, 10.5, Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.1
+      ..color = dark);
+    c.drawCircle(o, 7.6, Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 0.7
+      ..color = Colors.white.withOpacity(0.75));
+    final st = _starPath(o, 5.6);
+    c.drawPath(st, Paint()..color = dark.withOpacity(0.85));
+    c.drawCircle(o, 1.5, Paint()..color = Colors.white);
+  }
+
+  void _lozenge(Canvas c, Offset o, Color dark, Color light) {
+    c.drawPath(_diamondPath(o, 5.0), Paint()..color = light);
+    c.drawPath(_diamondPath(o, 5.0), Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.0
+      ..color = dark);
+    c.drawCircle(o, 1.2, Paint()..color = dark);
+  }
+
   @override
   void paint(Canvas c, Size s) {
-    final rc = Rect.fromLTWH(1 + _bandW / 2, 1 + _bandW / 2, s.width - 2 - _bandW, s.height - 2 - _bandW);
+    final w = s.width, h = s.height;
+    final rc = Rect.fromLTWH(1 + _bandW / 2, 1 + _bandW / 2, w - 2 - _bandW, h - 2 - _bandW);
     final path = _framePath(rc, 20);
     final m = path.computeMetrics().first;
     final len = m.length;
-    final track = Paint()
+    final outer = RRect.fromRectAndRadius(Rect.fromLTWH(0.8, 0.8, w - 1.6, h - 1.6), Radius.circular(25));
+    final inner = RRect.fromRectAndRadius(Rect.fromLTWH(1 + _bandW, 1 + _bandW, w - 2 - 2 * _bandW, h - 2 - 2 * _bandW), Radius.circular(16));
+    final dark = Color.lerp(orn, Colors.black, 0.45)!;
+    final light = Color.lerp(orn, Colors.white, 0.55)!;
+
+    // أرضية الشريط: تدرّج ذهبي ناعم بين الخطّين
+    final bandPath = Path()
+      ..fillType = PathFillType.evenOdd
+      ..addRRect(outer)
+      ..addRRect(inner);
+    c.drawPath(bandPath, Paint()..shader = LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [orn.withOpacity(0.24), orn.withOpacity(0.08), orn.withOpacity(0.24)]).createShader(Offset.zero & s));
+
+    // مسار التقدّم الرفيع
+    c.drawPath(path, Paint()
       ..style = PaintingStyle.stroke
-      ..strokeWidth = _bandW;
+      ..strokeWidth = 2.2
+      ..color = orn.withOpacity(done ? 0.0 : 0.38));
 
-    // مسار الشريط (ذهبي خافت)
-    c.drawPath(path, track..color = orn.withOpacity(done ? 0.0 : 0.26));
-
-    // التقدّم (أو ذهب متوهّج عند الإتمام)
     final pr = done ? 1.0 : progress.clamp(0.0, 1.0).toDouble();
     if (pr > 0) {
       final seg = m.extractPath(0, len * pr);
       final col = done ? orn : Color.lerp(fill, Colors.white, 0.18 * glow)!;
       c.drawPath(seg, Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = _bandW + 4
-        ..color = col.withOpacity(done ? 0.55 : 0.40)
-        ..maskFilter = MaskFilter.blur(BlurStyle.normal, 6));
+        ..strokeWidth = 6
+        ..color = col.withOpacity(done ? 0.50 : 0.35)
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, 4));
       c.drawPath(seg, Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = _bandW
-        ..strokeCap = StrokeCap.butt
+        ..strokeWidth = 3.4
+        ..strokeCap = StrokeCap.round
         ..color = col);
     }
 
-    // معيّنات مرصّعة على طول الشريط (المضيئة بيضاء)
-    for (double d = 8; d < len - 4; d += 15) {
+    // لآلئ صغيرة على طول الشريط (المضيئة بيضاء)
+    for (double d = 12; d < len - 8; d += 16) {
       final t = m.getTangentForOffset(d);
       if (t == null) continue;
       final lit = done || d / len <= pr;
-      c.drawPath(_diamondPath(t.position, 2.3), Paint()..color = lit ? Colors.white.withOpacity(0.92) : orn.withOpacity(0.75));
+      c.drawCircle(t.position, 1.25, Paint()..color = lit ? Colors.white.withOpacity(0.95) : orn.withOpacity(0.85));
     }
 
-    // خطّا حافة الشريط (خارجي وداخلي)
-    final line = Paint()
+    // الخطّان الذهبيان الرفيعان (خارجي وداخلي)
+    c.drawRRect(outer, Paint()
       ..style = PaintingStyle.stroke
-      ..color = orn;
-    c.drawRRect(RRect.fromRectAndRadius(Rect.fromLTWH(0.8, 0.8, s.width - 1.6, s.height - 1.6), Radius.circular(25)), line..strokeWidth = 1.5);
-    c.drawRRect(RRect.fromRectAndRadius(Rect.fromLTWH(1 + _bandW, 1 + _bandW, s.width - 2 - 2 * _bandW, s.height - 2 - 2 * _bandW), Radius.circular(15)), line
-      ..strokeWidth = 1.0
+      ..strokeWidth = 1.5
+      ..color = orn);
+    c.drawRRect(inner, Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 0.9
       ..color = orn.withOpacity(0.9));
 
-    // نجمة ذهبية في كل ركن
-    final dark = Color.lerp(orn, Colors.black, 0.45)!;
-    for (final o in [Offset(13, 13), Offset(s.width - 13, 13), Offset(13, s.height - 13), Offset(s.width - 13, s.height - 13)]) {
-      final st = _starPath(o, 10);
-      c.drawPath(st, Paint()..color = Color.lerp(orn, Colors.white, 0.25)!);
-      c.drawPath(st, Paint()
-        ..color = dark
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.0);
-      c.drawCircle(o, 2.6, Paint()..color = dark);
-      c.drawCircle(o, 1.3, Paint()..color = Colors.white);
+    // ميداليات منتصف الأضلاع (اليمين واليسار والأسفل؛ الأعلى تشغله اللوحة)
+    final mid = 1 + _bandW / 2;
+    _lozenge(c, Offset(mid, h / 2), dark, light);
+    _lozenge(c, Offset(w - mid, h / 2), dark, light);
+    _lozenge(c, Offset(w / 2, h - mid), dark, light);
+
+    // ميدالية في كل ركن
+    for (final o in [Offset(13, 13), Offset(w - 13, 13), Offset(13, h - 13), Offset(w - 13, h - 13)]) {
+      _medal(c, o, dark, light);
     }
   }
 
