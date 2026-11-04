@@ -184,7 +184,36 @@ class KhalwatiApp extends StatelessWidget {
         builder: (context, dark, _) => MaterialApp(
           debugShowCheckedModeBanner: false,
           title: 'الطريقة الخلوتية البكرية',
-          builder: (context, child) => Directionality(textDirection: TextDirection.rtl, child: child!),
+          builder: (context, child) {
+            // التصميم يُبنى على عرض مرجعي ثابت ثم يُكبَّر/يُصغَّر بنفس النسبة، فيظهر متطابقاً على كل الموبايلات
+            // بغض النظر عن حجم الشاشة، وبغض النظر عن إعدادات حجم الخط وحجم العرض في نظام الموبايل.
+            final mq = MediaQuery.of(context);
+            const baseWidth = 400.0;
+            final s = (mq.size.shortestSide / baseWidth).clamp(0.7, 1.8).toDouble();
+            return FittedBox(
+              fit: BoxFit.fill,
+              child: SizedBox(
+                width: mq.size.width / s,
+                height: mq.size.height / s,
+                child: AppScale(
+                  scale: s,
+                  original: mq,
+                  child: MediaQuery(
+                  data: mq.copyWith(
+                    textScaler: TextScaler.noScaling,
+                    size: mq.size / s,
+                    devicePixelRatio: mq.devicePixelRatio * s,
+                    padding: mq.padding / s,
+                    viewPadding: mq.viewPadding / s,
+                    viewInsets: mq.viewInsets / s,
+                    systemGestureInsets: mq.systemGestureInsets / s,
+                  ),
+                  child: Directionality(textDirection: TextDirection.rtl, child: child!),
+                  ),
+                ),
+              ),
+            );
+          },
           themeMode: dark ? ThemeMode.dark : ThemeMode.light,
           theme: ThemeData(
             useMaterial3: true,
@@ -201,6 +230,34 @@ class KhalwatiApp extends StatelessWidget {
           home: SplashScreen(),
         ),
       ));
+}
+
+// معامل تكبير التصميم + إعدادات الجهاز الأصلية (لاستثناء صفحات معيّنة مثل الـ PDF من التكبير)
+class AppScale extends InheritedWidget {
+  final double scale;
+  final MediaQueryData original;
+  const AppScale({super.key, required this.scale, required this.original, required super.child});
+  @override
+  bool updateShouldNotify(AppScale old) => scale != old.scale || original != old.original;
+}
+
+// يعرض المحتوى بحجمه الأصلي تماماً (كأن التكبير غير موجود) وبإعدادات الجهاز الأصلية
+class UnscaledArea extends StatelessWidget {
+  final Widget child;
+  const UnscaledArea({super.key, required this.child});
+  @override
+  Widget build(BuildContext context) {
+    final sc = context.dependOnInheritedWidgetOfExactType<AppScale>();
+    if (sc == null || (sc.scale - 1).abs() < 0.001) return child;
+    return FittedBox(
+      fit: BoxFit.fill,
+      child: SizedBox(
+        width: sc.original.size.width,
+        height: sc.original.size.height,
+        child: MediaQuery(data: sc.original, child: child),
+      ),
+    );
+  }
 }
 
 class SplashScreen extends StatefulWidget {
@@ -319,102 +376,561 @@ class HomeShell extends StatefulWidget {
 
 class _HomeShellState extends State<HomeShell> {
   int selected = 0;
-  final List<Widget> pages = const [HomePage(), AwradPage(), MasbahaPage(), FavoritesPage(), MorePage()];
+  late final List<Widget> pages = [HomePage(onGo: _go), AwradPage(), MasbahaPage(), FavoritesPage(), MorePage()];
+  static const List<IconData> _icons = [Icons.home_outlined, Icons.menu_book_outlined, Icons.blur_circular, Icons.favorite_border_rounded, Icons.more_horiz_rounded];
+  static const List<IconData> _iconsSel = [Icons.home_rounded, Icons.menu_book_rounded, Icons.blur_circular, Icons.favorite_rounded, Icons.more_horiz_rounded];
+  static const List<String> _labels = ['الرئيسية', 'الأوراد', 'المسبحة', 'المفضلة', 'المزيد'];
+
+  void _go(int i) => setState(() => selected = i);
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-        body: SafeArea(child: IndexedStack(index: selected, children: pages)),
-        bottomNavigationBar: SafeArea(
-          child: Container(
-            margin: EdgeInsets.fromLTRB(12, 4, 12, 10),
-            padding: EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: deepGreen,
-              borderRadius: BorderRadius.circular(30),
-              border: Border.all(color: gold, width: 1.5),
-              boxShadow: [BoxShadow(color: Color(0x22000000), blurRadius: 10, offset: Offset(0, 3))],
-            ),
-            child: Row(children: [
-              _navItem(0, Icons.home_rounded, 'الرئيسية'),
-              _navItem(1, Icons.menu_book_rounded, 'الأوراد'),
-              _navItem(2, Icons.blur_circular, 'المسبحة'),
-              _navItem(3, Icons.favorite_rounded, 'المفضلة'),
-              _navItem(4, Icons.more_horiz_rounded, 'المزيد'),
+  Widget build(BuildContext context) {
+    final dark = isDark(context);
+    const goldLight = Color(0xFFF2DE9F);
+    final barRadius = BorderRadius.circular(34);
+    return Scaffold(
+      body: IndexedStack(index: selected, children: pages),
+      bottomNavigationBar: SafeArea(
+        top: false,
+        child: Container(
+          margin: EdgeInsets.fromLTRB(14, 6, 14, 12),
+          height: 78,
+          decoration: BoxDecoration(
+            gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: dark ? [deepGreen, deepDark] : [green, deepGreen]),
+            borderRadius: barRadius,
+            border: Border.all(color: gold.withOpacity(0.6), width: 1.2),
+            boxShadow: [
+              BoxShadow(color: Colors.black.withOpacity(0.30), blurRadius: 20, offset: Offset(0, 8)),
+              BoxShadow(color: green.withOpacity(0.35), blurRadius: 28, spreadRadius: 1),
+            ],
+          ),
+          child: ClipRRect(
+            borderRadius: barRadius,
+            child: Stack(children: [
+              Positioned.fill(child: CustomPaint(painter: StarPatternPainter(gold.withOpacity(0.10)))),
+              Positioned(
+                top: 0,
+                left: 26,
+                right: 26,
+                child: Container(
+                  height: 1.4,
+                  decoration: BoxDecoration(gradient: LinearGradient(colors: [Colors.transparent, goldLight.withOpacity(0.9), Colors.transparent])),
+                ),
+              ),
+              Row(children: [for (int i = 0; i < _icons.length; i++) Expanded(child: _navItem(i))]),
             ]),
           ),
         ),
-      );
+      ),
+    );
+  }
 
-  Widget _navItem(int i, IconData icon, String label) => Expanded(
-        child: Padding(
-          padding: EdgeInsets.symmetric(horizontal: 3),
-          child: Material(
-            color: selected == i ? lighten(0.12) : Colors.transparent,
-            borderRadius: BorderRadius.circular(24),
-            child: InkWell(
-              borderRadius: BorderRadius.circular(24),
-              onTap: () => setState(() => selected = i),
-              child: Padding(
-                padding: EdgeInsets.symmetric(vertical: 12, horizontal: 1),
-                child: Column(mainAxisSize: MainAxisSize.min, children: [
-                  Icon(icon, color: Colors.white, size: 26),
-                  SizedBox(height: 5),
-                  FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: Text(label, style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w700)),
-                  ),
-                ]),
-              ),
+  Widget _navItem(int i) {
+    final sel = selected == i;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () {
+        if (selected != i) HapticFeedback.selectionClick();
+        setState(() => selected = i);
+      },
+      child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+        AnimatedContainer(
+          duration: Duration(milliseconds: 320),
+          curve: Curves.easeOutCubic,
+          width: sel ? 58 : 40,
+          height: 34,
+          decoration: BoxDecoration(
+            gradient: sel ? LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Color(0xFFF7E8B5), gold]) : null,
+            borderRadius: BorderRadius.circular(17),
+            boxShadow: sel ? [BoxShadow(color: gold.withOpacity(0.55), blurRadius: 14, offset: Offset(0, 3))] : null,
+          ),
+          child: Center(
+            child: AnimatedScale(
+              scale: sel ? 1.1 : 1.0,
+              duration: Duration(milliseconds: 320),
+              curve: Curves.easeOutBack,
+              child: Icon(sel ? _iconsSel[i] : _icons[i], size: 24, color: sel ? deepGreen : Colors.white.withOpacity(0.8)),
             ),
           ),
         ),
-      );
+        SizedBox(height: 4),
+        AnimatedDefaultTextStyle(
+          duration: Duration(milliseconds: 250),
+          style: TextStyle(fontSize: 11.5, height: 1.2, fontWeight: sel ? FontWeight.w800 : FontWeight.w500, color: sel ? Color(0xFFF2DE9F) : Colors.white.withOpacity(0.65)),
+          child: Text(_labels[i], maxLines: 1),
+        ),
+      ]),
+    );
+  }
 }
 
 class HomePage extends StatelessWidget {
-  const HomePage({super.key});
+  final void Function(int) onGo;
+  const HomePage({super.key, required this.onGo});
+
   @override
-  Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(
-          title: Text('الطريقة الخلوتية البكرية'),
-          actions: [
-            IconButton(
-              tooltip: 'الوضع الليلي',
-              icon: Icon(isDark(context) ? Icons.light_mode : Icons.dark_mode),
-              onPressed: () => setDark(!darkMode.value),
-            ),
-          ],
-        ),
-        body: ListView(padding: EdgeInsets.all(18), children: [
-          ClockCard(),
-          SizedBox(height: 14),
-          ThanksCard(),
-          SizedBox(height: 20),
+  Widget build(BuildContext context) {
+    final tiles = <_QuickTile>[
+      _QuickTile(
+        icon: Icons.menu_book_rounded,
+        title: 'كتاب الأوراد',
+        subtitle: 'مع فهرس العناوين',
+        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => BookIndexPage())),
+      ),
+      _QuickTile(
+        icon: Icons.format_list_numbered,
+        title: 'المسبعات',
+        subtitle: 'بالعدّ والتهنئة',
+        onTap: () => openText(context, 'المسبعات', 'assets/texts/musabbaat.txt', false),
+      ),
+      _QuickTile(
+        icon: Icons.volunteer_activism,
+        title: 'الصلوات الدرديرية',
+        subtitle: 'النص الكامل',
+        onTap: () => openText(context, 'الصلوات الدرديرية', 'assets/texts/salawat_dardiriyya.txt', false),
+      ),
+      _QuickTile(
+        icon: Icons.waves,
+        title: 'حزب البحر',
+        subtitle: 'النص كاملاً',
+        onTap: () => openTextString(context, 'حزب البحر', hizbAlBahrText),
+      ),
+      _QuickTile(
+        icon: Icons.library_books,
+        title: 'المنظومة',
+        subtitle: 'القصيدة كاملة',
+        onTap: () => openText(context, 'المنظومة', 'assets/texts/manzuma.txt', true),
+      ),
+      _QuickTile(
+        icon: Icons.blur_circular,
+        title: 'المسبحة',
+        subtitle: 'عدّاد الذكر',
+        onTap: () => onGo(2),
+      ),
+    ];
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: SystemUiOverlayStyle.light,
+      child: Scaffold(
+        body: Stack(children: [
+        Positioned.fill(child: CustomPaint(painter: StarPatternPainter(green.withOpacity(isDark(context) ? 0.07 : 0.05)))),
+        ListView(padding: EdgeInsets.only(bottom: 24), children: [
+          _HomeHero(),
           ValueListenableBuilder<int>(
             valueListenable: lastPdfPage,
             builder: (context, v, _) => v > 0
                 ? Padding(
-                    padding: EdgeInsets.only(bottom: 12),
-                    child: SectionCard(
-                      title: 'متابعة قراءة كتاب الأوراد',
-                      subtitle: 'أكمل القراءة من صفحة $v',
-                      icon: Icons.bookmark_added,
+                    padding: EdgeInsets.fromLTRB(16, 18, 16, 0),
+                    child: _ContinueBanner(
+                      page: v,
                       onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => PdfReaderPage(initialPage: v))),
                     ),
                   )
                 : SizedBox.shrink(),
           ),
-          SectionCard(
-            title: 'كتاب أوراد الطريقة',
-            subtitle: 'افتح الكتاب أو تصفح الفهرس للوصول إلى العناوين',
-            icon: Icons.menu_book,
-            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => BookIndexPage())),
+          _SectionTitle('الوصول السريع'),
+          Padding(
+            padding: EdgeInsets.symmetric(horizontal: 16),
+            child: GridView.count(
+              shrinkWrap: true,
+              physics: NeverScrollableScrollPhysics(),
+              crossAxisCount: 2,
+              mainAxisSpacing: 14,
+              crossAxisSpacing: 14,
+              childAspectRatio: 1.04,
+              children: tiles,
+            ),
           ),
-          SizedBox(height: 10),
-          Text('المحتوى محفوظ داخل التطبيق ويمكن فتحه دون إنترنت.',
-              textAlign: TextAlign.center, style: TextStyle(color: ink(context).withOpacity(0.7), height: 1.8)),
+          SizedBox(height: 22),
+          Padding(padding: EdgeInsets.symmetric(horizontal: 16), child: ThanksCard()),
+          SizedBox(height: 14),
+          Padding(
+            padding: EdgeInsets.symmetric(horizontal: 24),
+            child: Text('المحتوى محفوظ داخل التطبيق ويمكن فتحه دون إنترنت.',
+                textAlign: TextAlign.center, style: TextStyle(color: ink(context).withOpacity(0.6), fontSize: 13, height: 1.8)),
+          ),
         ]),
+        ]),
+      ),
+    );
+  }
+}
+
+class _HomeHero extends StatefulWidget {
+  const _HomeHero();
+  @override
+  State<_HomeHero> createState() => _HomeHeroState();
+}
+
+class _HomeHeroState extends State<_HomeHero> {
+  Timer? timer;
+  @override
+  void initState() {
+    super.initState();
+    timer = Timer.periodic(Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    timer?.cancel();
+    super.dispose();
+  }
+
+  Widget _glass(IconData icon, String tip, VoidCallback onTap) => Tooltip(
+        message: tip,
+        child: Material(
+          color: Colors.white.withOpacity(0.14),
+          shape: CircleBorder(side: BorderSide(color: gold.withOpacity(0.7))),
+          child: InkWell(
+            customBorder: CircleBorder(),
+            onTap: onTap,
+            child: SizedBox(width: 44, height: 44, child: Icon(icon, color: Color(0xFFF2DE9F), size: 22)),
+          ),
+        ),
       );
+
+  String _greeting(DateTime t) {
+    final h = t.hour;
+    if (h >= 4 && h < 12) return 'صباح الخير والبركة';
+    if (h >= 12 && h < 17) return 'نهارك مبارك';
+    if (h >= 17 && h < 20) return 'مساء الخير والنور';
+    return 'ليلة مباركة';
+  }
+
+  Widget _ornament() => Row(children: [
+        Expanded(child: Container(height: 1.2, color: gold.withOpacity(0.55))),
+        Padding(
+          padding: EdgeInsets.symmetric(horizontal: 10),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Transform.rotate(angle: 0.785398, child: Container(width: 6, height: 6, color: gold)),
+            SizedBox(width: 6),
+            Transform.rotate(angle: 0.785398, child: Container(width: 9, height: 9, decoration: BoxDecoration(border: Border.all(color: gold, width: 1.4)))),
+            SizedBox(width: 6),
+            Transform.rotate(angle: 0.785398, child: Container(width: 6, height: 6, color: gold)),
+          ]),
+        ),
+        Expanded(child: Container(height: 1.2, color: gold.withOpacity(0.55))),
+      ]);
+
+  @override
+  Widget build(BuildContext context) {
+    final t = appNow();
+    final top = MediaQuery.of(context).padding.top;
+    final dark = isDark(context);
+    final h12 = t.hour % 12 == 0 ? 12 : t.hour % 12;
+    final hm = '$h12:${_two(t.minute)}';
+    const goldLight = Color(0xFFF2DE9F);
+    final radius = BorderRadius.vertical(bottom: Radius.circular(38));
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(begin: Alignment.topRight, end: Alignment.bottomLeft, colors: dark ? [deepDark, deepGreen] : [deepGreen, green]),
+        borderRadius: radius,
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.25), blurRadius: 20, offset: Offset(0, 8))],
+      ),
+      child: ClipRRect(
+        borderRadius: radius,
+        child: Stack(children: [
+          Positioned.fill(child: CustomPaint(painter: StarPatternPainter(gold.withOpacity(0.13)))),
+          PositionedDirectional(
+            end: -70,
+            top: -70,
+            child: Container(
+              width: 240,
+              height: 240,
+              decoration: BoxDecoration(shape: BoxShape.circle, gradient: RadialGradient(colors: [gold.withOpacity(0.38), Colors.transparent])),
+            ),
+          ),
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: Container(
+              height: 4,
+              decoration: BoxDecoration(gradient: LinearGradient(colors: [Colors.transparent, gold, Color(0xFFF7E8B5), gold, Colors.transparent])),
+            ),
+          ),
+          PositionedDirectional(
+            start: -80,
+            bottom: -80,
+            child: Container(
+              width: 220,
+              height: 220,
+              decoration: BoxDecoration(shape: BoxShape.circle, gradient: RadialGradient(colors: [Colors.white.withOpacity(0.10), Colors.transparent])),
+            ),
+          ),
+          Padding(
+            padding: EdgeInsets.fromLTRB(18, top + 10, 18, 28),
+            child: Column(children: [
+              Row(children: [
+                SizedBox(width: 44),
+                Expanded(
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      'الطريقة الخلوتية البكرية',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontFamily: 'Rsail',
+                        fontSize: 28,
+                        fontWeight: FontWeight.w700,
+                        height: 1.6,
+                        color: goldLight,
+                        shadows: [Shadow(color: Colors.black.withOpacity(0.35), blurRadius: 6, offset: Offset(0, 2))],
+                      ),
+                    ),
+                  ),
+                ),
+                _glass(dark ? Icons.light_mode : Icons.dark_mode, 'الوضع الليلي', () => setDark(!darkMode.value)),
+              ]),
+              _ornament(),
+              SizedBox(height: 6),
+              Text('بسم الله الرحمن الرحيم', textAlign: TextAlign.center, style: TextStyle(fontFamily: 'Rsail', fontSize: 21, height: 1.7, color: Colors.white.withOpacity(0.92))),
+              SizedBox(height: 14),
+              Container(
+                width: double.infinity,
+                padding: EdgeInsets.symmetric(vertical: 16, horizontal: 16),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Colors.white.withOpacity(0.14), Colors.black.withOpacity(0.22)]),
+                  borderRadius: BorderRadius.circular(28),
+                  border: Border.all(color: gold.withOpacity(0.75), width: 1.3),
+                  boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.25), blurRadius: 14, offset: Offset(0, 6))],
+                ),
+                child: Column(children: [
+                  Container(
+                    padding: EdgeInsets.symmetric(horizontal: 14, vertical: 3),
+                    margin: EdgeInsets.only(bottom: 6),
+                    decoration: BoxDecoration(
+                      color: gold.withOpacity(0.16),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: gold.withOpacity(0.5)),
+                    ),
+                    child: Text(_greeting(t), style: TextStyle(color: goldLight, fontSize: 14, fontWeight: FontWeight.w700, height: 1.5)),
+                  ),
+                  Directionality(
+                    textDirection: TextDirection.ltr,
+                    child: Row(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.end, children: [
+                      Text(hm, style: TextStyle(color: Colors.white, fontSize: 54, fontWeight: FontWeight.bold, height: 1.05)),
+                      SizedBox(width: 8),
+                      Padding(
+                        padding: EdgeInsets.only(bottom: 7),
+                        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          Text(t.hour < 12 ? 'ص' : 'م', style: TextStyle(color: goldLight, fontSize: 20, fontWeight: FontWeight.bold, height: 1.2)),
+                          Text(_two(t.second), style: TextStyle(color: Colors.white70, fontSize: 17, height: 1.2)),
+                        ]),
+                      ),
+                    ]),
+                  ),
+                  SizedBox(height: 8),
+                  Container(width: 54, height: 1.4, color: gold.withOpacity(0.6)),
+                  SizedBox(height: 8),
+                  Text(fmtGregorian(t), textAlign: TextAlign.center, style: TextStyle(color: silver, fontSize: 17, height: 1.6)),
+                  Text(fmtHijri(t), textAlign: TextAlign.center, style: TextStyle(color: goldLight, fontSize: 18, fontWeight: FontWeight.w700, height: 1.6)),
+                  if (timeOffset != Duration.zero)
+                    Padding(padding: EdgeInsets.only(top: 4), child: Text('الوقت معدّل يدوياً', style: TextStyle(color: Colors.white60, fontSize: 12))),
+                ]),
+              ),
+            ]),
+          ),
+        ]),
+      ),
+    );
+  }
+}
+
+class _SectionTitle extends StatelessWidget {
+  final String text;
+  const _SectionTitle(this.text);
+  @override
+  Widget build(BuildContext context) {
+    Widget line() => Expanded(child: Container(height: 1.2, color: gold.withOpacity(0.5)));
+    Widget diamond() => Transform.rotate(angle: 0.785398, child: Container(width: 7, height: 7, color: gold));
+    return Padding(
+      padding: EdgeInsets.fromLTRB(22, 24, 22, 14),
+      child: Row(children: [
+        line(),
+        SizedBox(width: 10),
+        diamond(),
+        SizedBox(width: 9),
+        Text(text, style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800, color: accent(context))),
+        SizedBox(width: 9),
+        diamond(),
+        SizedBox(width: 10),
+        line(),
+      ]),
+    );
+  }
+}
+
+class _ContinueBanner extends StatelessWidget {
+  final int page;
+  final VoidCallback onTap;
+  const _ContinueBanner({required this.page, required this.onTap});
+  @override
+  Widget build(BuildContext context) {
+    final dark = isDark(context);
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: Container(
+        padding: EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topRight,
+            end: Alignment.bottomLeft,
+            colors: dark ? [gold.withOpacity(0.26), darkTint(0.10)] : [gold.withOpacity(0.28), Colors.white],
+          ),
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: gold, width: 1.4),
+          boxShadow: [BoxShadow(color: gold.withOpacity(0.25), blurRadius: 14, offset: Offset(0, 5))],
+        ),
+        child: Row(children: [
+          Container(
+            width: 52,
+            height: 52,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Color(0xFFF4E3A8), gold]),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Icon(Icons.bookmark_added, color: deepGreen, size: 28),
+          ),
+          SizedBox(width: 14),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('متابعة قراءة كتاب الأوراد', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: accent(context))),
+              SizedBox(height: 3),
+              Text('أكمل القراءة من صفحة $page', style: TextStyle(fontSize: 13.5, color: ink(context).withOpacity(0.75))),
+            ]),
+          ),
+          Icon(Icons.chevron_left, color: accent(context), size: 28),
+        ]),
+      ),
+    );
+  }
+}
+
+class _QuickTile extends StatefulWidget {
+  final IconData icon;
+  final String title, subtitle;
+  final VoidCallback onTap;
+  const _QuickTile({required this.icon, required this.title, required this.subtitle, required this.onTap});
+  @override
+  State<_QuickTile> createState() => _QuickTileState();
+}
+
+class _QuickTileState extends State<_QuickTile> {
+  bool pressed = false;
+  @override
+  Widget build(BuildContext context) {
+    final dark = isDark(context);
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTapDown: (_) => setState(() => pressed = true),
+      onTapUp: (_) => setState(() => pressed = false),
+      onTapCancel: () => setState(() => pressed = false),
+      onTap: widget.onTap,
+      child: AnimatedScale(
+        scale: pressed ? 0.96 : 1.0,
+        duration: Duration(milliseconds: 100),
+        child: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topRight,
+              end: Alignment.bottomLeft,
+              colors: dark ? [darkTint(0.20), darkTint(0.08)] : [Colors.white, tint(0.14)],
+            ),
+            borderRadius: BorderRadius.circular(26),
+            border: Border.all(color: gold.withOpacity(0.65), width: 1.2),
+            boxShadow: [BoxShadow(color: (dark ? Colors.black : green).withOpacity(dark ? 0.4 : 0.15), blurRadius: 14, offset: Offset(0, 6))],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(26),
+            child: Stack(children: [
+              PositionedDirectional(
+                end: -14,
+                bottom: -18,
+                child: Icon(widget.icon, size: 100, color: green.withOpacity(dark ? 0.12 : 0.07)),
+              ),
+              PositionedDirectional(
+                top: 14,
+                end: 14,
+                child: Container(
+                  width: 30,
+                  height: 30,
+                  decoration: BoxDecoration(shape: BoxShape.circle, color: gold.withOpacity(0.16), border: Border.all(color: gold.withOpacity(0.6))),
+                  child: Icon(Icons.arrow_back_ios_new_rounded, size: 13, color: dark ? Color(0xFFF2DE9F) : Color(0xFF9A7B22)),
+                ),
+              ),
+              Padding(
+                padding: EdgeInsets.all(14),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Container(
+                    width: 54,
+                    height: 54,
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(begin: Alignment.topRight, end: Alignment.bottomLeft, colors: [lighten(0.12), deepGreen]),
+                      borderRadius: BorderRadius.circular(17),
+                      border: Border.all(color: gold, width: 1.5),
+                      boxShadow: [BoxShadow(color: green.withOpacity(0.35), blurRadius: 8, offset: Offset(0, 3))],
+                    ),
+                    child: Icon(widget.icon, color: Colors.white, size: 28),
+                  ),
+                  Spacer(),
+                  Text(widget.title, maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 16.5, height: 1.3, fontWeight: FontWeight.w800, color: accent(context))),
+                  SizedBox(height: 2),
+                  Text(widget.subtitle, style: TextStyle(fontSize: 12.5, color: ink(context).withOpacity(0.65))),
+                ]),
+              ),
+            ]),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// زخرفة نجوم ثمانية متكررة خفيفة لخلفية الشاشة الرئيسية
+class StarPatternPainter extends CustomPainter {
+  final Color color;
+  StarPatternPainter(this.color);
+
+  void _star(Canvas c, Offset o, double r, Paint p) {
+    for (final rot in [0.0, math.pi / 4]) {
+      final path = Path();
+      for (int i = 0; i < 4; i++) {
+        final a = rot + i * math.pi / 2 + math.pi / 4;
+        final pt = Offset(o.dx + r * math.cos(a), o.dy + r * math.sin(a));
+        if (i == 0) {
+          path.moveTo(pt.dx, pt.dy);
+        } else {
+          path.lineTo(pt.dx, pt.dy);
+        }
+      }
+      path.close();
+      c.drawPath(path, p);
+    }
+    c.drawCircle(o, r * 0.28, p);
+  }
+
+  @override
+  void paint(Canvas c, Size size) {
+    const cell = 56.0;
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1;
+    int row = 0;
+    for (double y = 0; y < size.height + cell; y += cell / 2) {
+      final shift = row.isEven ? 0.0 : cell / 2;
+      for (double x = -cell; x < size.width + cell; x += cell) {
+        _star(c, Offset(x + shift, y), cell * 0.30, paint);
+      }
+      row++;
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant StarPatternPainter old) => old.color != color;
 }
 
 class AwradPage extends StatelessWidget {
@@ -858,17 +1374,6 @@ class _TextReaderPageState extends State<TextReaderPage> {
     final st = bodyStyle(context);
     final splits = body.map(splitCount).toList();
     _boxTargets = {for (int k = 0; k < body.length; k++) if (splits[k] != null) k: splits[k]!.target};
-    final blockStart = <int, int>{}; // فقرة العدد -> أول فقرة داخل صندوقها
-    final absorbed = <int>{}; // بسملة/عنوان يُعرض داخل صندوق الفقرة التالية
-    for (int k = 0; k < body.length; k++) {
-      if (splits[k] == null) continue;
-      var s0 = k;
-      while (s0 > 0 && splits[s0 - 1] == null && isCountLeadIn(body[s0 - 1])) {
-        s0--;
-        absorbed.add(s0);
-      }
-      blockStart[k] = s0;
-    }
     return Scaffold(
       appBar: appBar,
       body: Column(children: [ReadingTimerBar(title: widget.title), Expanded(child: _withAutoBar(Container(
@@ -891,7 +1396,6 @@ class _TextReaderPageState extends State<TextReaderPage> {
                 }
                 if (i == body.length + 1) return _finishButton();
                 final idx = i - 1;
-                if (absorbed.contains(idx)) return SizedBox.shrink();
                 final divider = Padding(
                   padding: EdgeInsets.only(bottom: 6),
                   child: Center(child: Container(width: 38, height: 1, color: gold.withOpacity(0.38))),
@@ -908,9 +1412,6 @@ class _TextReaderPageState extends State<TextReaderPage> {
                   return Column(children: [line(idx, body[idx]), divider]);
                 }
                 final parts = <Widget>[];
-                for (int j = blockStart[idx] ?? idx; j < idx; j++) {
-                  parts.add(line(j, body[j]));
-                }
                 parts.add(line(idx, sp.head));
                 return Column(children: [
                   CountBox(
@@ -1145,7 +1646,7 @@ class _PdfReaderPageState extends State<PdfReaderPage> {
   @override
   Widget build(BuildContext context) {
     final dark = isDark(context);
-    return Scaffold(
+    return UnscaledArea(child: Scaffold(
       backgroundColor: dark ? darkTint(0.06) : Color(0xFFEDEFEE),
       appBar: AppBar(
         title: Text(doc == null ? 'كتاب أوراد الطريقة' : 'صفحة $current من ${doc!.pagesCount}'),
@@ -1182,7 +1683,7 @@ class _PdfReaderPageState extends State<PdfReaderPage> {
                     itemBuilder: (context, i) => _PdfPageTile(key: ValueKey(i), index: i, host: this, width: w, height: w * aspect, dark: dark),
                   );
                 }),
-    );
+    ));
   }
 }
 
@@ -3631,88 +4132,105 @@ CountSplit? splitCount(String paragraph) {
 
 int? countTarget(String paragraph) => splitCount(paragraph)?.target;
 
-// سطر قصير يسبق فقرة العدد مباشرة (بسملة أو عنوان مثل "آية الكرسي") فيدخل معها في نفس الصندوق
-bool isCountLeadIn(String line) {
-  final n = _normForCount(line).replaceAll(RegExp('[^\u0621-\u064A ]'), ' ').replaceAll(RegExp(r'\s+'), ' ').trim();
-  if (n.isEmpty) return false;
-  if (n == 'بسم الله الرحمن الرحيم') return true;
-  if (n.startsWith('\u062D\u0631\u0641')) return false; // عناوين "حرف ..."
-  return n.split(' ').length <= 3;
-}
-
-class CountBox extends StatelessWidget {
+class CountBox extends StatefulWidget {
   final Widget child;
   final int count, target;
   final VoidCallback onTap, onReset;
   const CountBox({super.key, required this.child, required this.count, required this.target, required this.onTap, required this.onReset});
+  @override
+  State<CountBox> createState() => _CountBoxState();
+}
 
-  Widget _corner() => Transform.rotate(angle: 0.785398, child: Container(width: 8, height: 8, color: gold));
+class _CountBoxState extends State<CountBox> with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(vsync: this, duration: Duration(milliseconds: 280));
+  late final Animation<double> _scale = TweenSequence<double>([
+    TweenSequenceItem(tween: Tween<double>(begin: 1.0, end: 1.03).chain(CurveTween(curve: Curves.easeOut)), weight: 40),
+    TweenSequenceItem(tween: Tween<double>(begin: 1.03, end: 1.0).chain(CurveTween(curve: Curves.easeInOut)), weight: 60),
+  ]).animate(_c);
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  void _tap() {
+    _c.forward(from: 0); // يكبر شوي ثم يرجع
+    widget.onTap();
+  }
+
+  Widget _corner(Color col) => Transform.rotate(angle: 0.785398, child: Container(width: 8, height: 8, color: col));
 
   @override
   Widget build(BuildContext context) {
     final dark = isDark(context);
-    final done = count >= target;
+    final done = widget.count >= widget.target;
     const okGreen = Color(0xFF2E9B5F);
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: onTap,
-      child: Padding(
-        padding: EdgeInsets.symmetric(vertical: 10, horizontal: 2),
-        child: Stack(clipBehavior: Clip.none, children: [
-          Container(
-            padding: EdgeInsets.all(4),
-            decoration: BoxDecoration(
-              color: done ? gold.withOpacity(dark ? 0.16 : 0.18) : (dark ? Color(0x14FFFFFF) : tint(0.06)),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: done ? gold : gold.withOpacity(0.75), width: done ? 2.2 : 1.6),
-            ),
-            child: Container(
+    final base = dark ? Color(0xFF6EC1E4) : Color(0xFF2B7A9B); // لون الإطار (أزرق هادئ بدل الذهبي)
+    final frame = done ? okGreen : base;
+    return ScaleTransition(
+      scale: _scale,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: _tap,
+        child: Padding(
+          padding: EdgeInsets.symmetric(vertical: 10, horizontal: 10),
+          child: Stack(clipBehavior: Clip.none, children: [
+            Container(
+              padding: EdgeInsets.all(4),
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: gold.withOpacity(0.5), width: 1),
+                color: frame.withOpacity(done ? 0.12 : 0.08), // شفاف
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: frame.withOpacity(done ? 0.9 : 0.7), width: done ? 2.2 : 1.6),
               ),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                Padding(
-                  padding: EdgeInsets.fromLTRB(10, 8, 10, 0),
-                  child: Row(children: [
-                    Container(
-                      padding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: done ? okGreen : gold.withOpacity(0.18),
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(color: done ? okGreen : gold.withOpacity(0.8)),
-                      ),
-                      child: Row(mainAxisSize: MainAxisSize.min, children: [
-                        Icon(done ? Icons.check_circle : Icons.touch_app, size: 20, color: done ? Colors.white : accent(context)),
-                        SizedBox(width: 6),
-                        Text(
-                          done ? 'تم  $target / $target' : '$count / $target',
-                          style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: done ? Colors.white : accent(context)),
-                        ),
-                      ]),
-                    ),
-                    SizedBox(width: 10),
-                    if (count == 0)
-                      Expanded(child: Text('اضغط على الصندوق للعدّ', style: TextStyle(fontSize: 12, color: ink(context).withOpacity(0.6))))
-                    else
-                      Spacer(),
-                    if (count > 0)
-                      InkWell(
-                        onTap: onReset,
-                        customBorder: CircleBorder(),
-                        child: Padding(padding: EdgeInsets.all(6), child: Icon(Icons.restart_alt, size: 22, color: ink(context).withOpacity(0.65))),
-                      ),
-                  ]),
+              child: Container(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: frame.withOpacity(0.35), width: 1),
                 ),
-                Padding(padding: EdgeInsets.fromLTRB(12, 4, 12, 6), child: child),
-              ]),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                  Padding(
+                    padding: EdgeInsets.fromLTRB(10, 8, 10, 0),
+                    child: Row(children: [
+                      Container(
+                        padding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: done ? okGreen : frame.withOpacity(0.14),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(color: done ? okGreen : frame.withOpacity(0.8)),
+                        ),
+                        child: Row(mainAxisSize: MainAxisSize.min, children: [
+                          Icon(done ? Icons.check_circle : Icons.touch_app, size: 20, color: done ? Colors.white : frame),
+                          SizedBox(width: 6),
+                          Text(
+                            done ? 'تم  ${widget.target} / ${widget.target}' : '${widget.count} / ${widget.target}',
+                            style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: done ? Colors.white : frame),
+                          ),
+                        ]),
+                      ),
+                      SizedBox(width: 10),
+                      if (widget.count == 0)
+                        Expanded(child: Text('اضغط على الصندوق للعدّ', style: TextStyle(fontSize: 12, color: ink(context).withOpacity(0.6))))
+                      else
+                        Spacer(),
+                      if (widget.count > 0)
+                        InkWell(
+                          onTap: widget.onReset,
+                          customBorder: CircleBorder(),
+                          child: Padding(padding: EdgeInsets.all(6), child: Icon(Icons.restart_alt, size: 22, color: ink(context).withOpacity(0.65))),
+                        ),
+                    ]),
+                  ),
+                  Padding(padding: EdgeInsets.fromLTRB(12, 4, 12, 6), child: widget.child),
+                ]),
+              ),
             ),
-          ),
-          Positioned(top: -3, right: -3, child: _corner()),
-          Positioned(top: -3, left: -3, child: _corner()),
-          Positioned(bottom: -3, right: -3, child: _corner()),
-          Positioned(bottom: -3, left: -3, child: _corner()),
-        ]),
+            Positioned(top: -3, right: -3, child: _corner(frame)),
+            Positioned(top: -3, left: -3, child: _corner(frame)),
+            Positioned(bottom: -3, right: -3, child: _corner(frame)),
+            Positioned(bottom: -3, left: -3, child: _corner(frame)),
+          ]),
+        ),
       ),
     );
   }
