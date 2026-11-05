@@ -6,6 +6,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - name: Arrange files
         run: |
           mkdir -p lib assets/books assets/indexes assets/texts assets/icon assets/audio
@@ -15,27 +16,53 @@ jobs:
           mv musabbaat.txt salawat_dardiriyya.txt manzuma.txt assets/texts/
           mv app_icon.png assets/icon/
           mv sahar_wird.m4a assets/audio/
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
+
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
           cache: true
+
       - run: flutter create --platforms=android --project-name al_tariqa_al_khalwatiya_al_bakriya --org com.khalwatiya.bakriya .
+
       - run: rm -rf test
-      - name: Add audio package and asset folder
+
+      - name: Add audio packages and asset folder
         run: |
-          flutter pub add just_audio
+          flutter pub add just_audio just_audio_background
           if ! grep -q "assets/audio/" pubspec.yaml; then
             sed -i -E '0,/^([[:space:]]*)assets:[[:space:]]*$/s//&\n\1  - assets\/audio\//' pubspec.yaml
           fi
           grep -n -A12 "assets:" pubspec.yaml
+
       - run: flutter pub get
+
+      - name: Configure Android for background audio
+        run: |
+          MANIFEST=android/app/src/main/AndroidManifest.xml
+
+          # Permissions
+          sed -i 's#<application#<uses-permission android:name="android.permission.WAKE_LOCK"/>\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"/>\n    <application#' $MANIFEST
+
+          # Service + receiver
+          sed -i 's#</application>#    <service android:name="com.ryanheise.audioservice.AudioService" android:foregroundServiceType="mediaPlayback" android:exported="true">\n            <intent-filter><action android:name="android.media.browse.MediaBrowserService"/></intent-filter>\n        </service>\n        <receiver android:name="com.ryanheise.audioservice.MediaButtonReceiver" android:exported="true">\n            <intent-filter><action android:name="android.intent.action.MEDIA_BUTTON"/></intent-filter>\n        </receiver>\n    </application>#' $MANIFEST
+
+          # MainActivity -> AudioServiceActivity
+          F=$(find android/app/src/main -name MainActivity.kt)
+          sed -i 's#import io.flutter.embedding.android.FlutterActivity#import com.ryanheise.audioservice.AudioServiceActivity#; s#FlutterActivity()#AudioServiceActivity()#' $F
+          cat $F
+          cat $MANIFEST
+
       - run: dart run flutter_launcher_icons
+
       - run: sed -i 's/android:label="[^"]*"/android:label="الطريقة الخلوتية البكرية"/' android/app/src/main/AndroidManifest.xml
+
       - run: flutter build apk --release
+
       - uses: actions/upload-artifact@v4
         with:
           name: khalwatiya-apk
