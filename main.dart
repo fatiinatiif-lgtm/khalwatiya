@@ -2717,11 +2717,15 @@ List<_ChItem> chItemsFor(int pi) => challengePrayers[pi] == -1 ? [...challengeIt
 // الأيام السابقة لتاريخ إضافة ورد السحر تُحسب كاملة بدونه (حتى لا تنقطع السلاسل والأوسمة)
 String? _chSinceCache;
 Future<void> chLoadSince(SharedPreferences p) async {
-  var v = _chSinceCache ?? p.getString('ch_wird_since');
+  if (_chSinceCache != null) return;
+  var v = p.getString('chwird_since');
   if (v == null) {
-    v = todayKey();
-    await p.setString('ch_wird_since', v);
+    // مفتاح قديم كان يبدأ بـ ch_ فيتعارض مع قراءة أيام التحدي، يُنقل ويُحذف
+    final old = p.get('ch_wird_since');
+    v = old is String ? old : todayKey();
+    await p.setString('chwird_since', v);
   }
+  if (p.containsKey('ch_wird_since')) await p.remove('ch_wird_since');
   _chSinceCache = v;
 }
 
@@ -2766,7 +2770,7 @@ class _PrayerChallengePageState extends State<PrayerChallengePage> {
     }
     int fullDays = 0;
     for (final k in p.getKeys()) {
-      if (k.startsWith('ch_') && (p.getStringList(k) ?? []).length >= chNeed(k.substring(3))) fullDays++;
+      if (RegExp(r'^ch_\d{4}-\d{2}-\d{2}$').hasMatch(k) && (p.getStringList(k) ?? []).length >= chNeed(k.substring(3))) fullDays++;
     }
     if (!mounted) return;
     setState(() {
