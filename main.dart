@@ -56,6 +56,7 @@ Future<void> saveFont(FontCfg c) async {
 final RegExp _tashkeelRe = RegExp('[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06DC\u06DF-\u06E8\u06EA-\u06ED]');
 String stripTashkeel(String t) => t.replaceAll(_tashkeelRe, '');
 
+
 TextStyle bodyStyle(BuildContext c) {
   final cfg = fontCfg.value;
   return TextStyle(
@@ -143,6 +144,7 @@ Future<void> loadFavorites() async {
   paperMode.value = (p.getInt('paper_mode') ?? 0).clamp(0, 3).toInt();
   lastPdfPage.value = p.getInt('pdf_last') ?? 0;
   paletteIdx.value = (p.getInt('palette') ?? 0).clamp(0, palettes.length - 1).toInt();
+  tileDesign.value = (p.getInt('tile_design') ?? 0).clamp(0, tileDesignNames.length - 1).toInt();
   timeOffset = Duration(milliseconds: p.getInt('clock_off_ms') ?? 0);
   hijriAdj = p.getInt('hijri_adj') ?? 0;
   prayerCityIdx.value = (p.getInt('pr_city') ?? 0).clamp(0, prayerCities.length - 1).toInt();
@@ -372,6 +374,215 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
       );
 }
 
+// ===================== ليلة الجمعة ويومها: عدّاد الصلاة على النبي ﷺ =====================
+class FridayCard extends StatefulWidget {
+  const FridayCard({super.key});
+  @override
+  State<FridayCard> createState() => _FridayCardState();
+}
+
+class _FridayCardState extends State<FridayCard> {
+  Timer? _timer;
+  String? _label; // ليلة الجمعة (من مغرب الخميس) أو يوم الجمعة (حتى المغرب)
+  String _dateKey = '';
+  int _count = 0, _target = 1000;
+  bool _pressed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _sync();
+    _timer = Timer.periodic(Duration(seconds: 30), (_) => _sync());
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _sync() async {
+    final now = appNow();
+    final times = prayerTimesFor(now);
+    String? label;
+    DateTime? fri;
+    if (now.weekday == DateTime.thursday && !now.isBefore(times[4])) {
+      label = 'ليلة الجمعة';
+      fri = now.add(Duration(days: 1));
+    } else if (now.weekday == DateTime.friday && now.isBefore(times[4])) {
+      label = 'يوم الجمعة';
+      fri = now;
+    }
+    if (label == null || fri == null) {
+      if (_label != null && mounted) setState(() => _label = null);
+      return;
+    }
+    final key = '${fri.year}-${_two(fri.month)}-${_two(fri.day)}';
+    if (key == _dateKey) {
+      if (_label != label && mounted) setState(() => _label = label);
+      return;
+    }
+    final p = await SharedPreferences.getInstance();
+    if (!mounted) return;
+    setState(() {
+      _label = label;
+      _dateKey = key;
+      _count = p.getInt('jum_$key') ?? 0;
+      _target = p.getInt('jum_target') ?? 1000;
+    });
+  }
+
+  Future<void> _tap() async {
+    HapticFeedback.selectionClick();
+    final before = _count;
+    setState(() => _count++);
+    final p = await SharedPreferences.getInstance();
+    await p.setInt('jum_$_dateKey', _count);
+    if (before < _target && _count >= _target) {
+      await addLog(_label ?? 'الجمعة', 'الصلاة على النبي ﷺ ($_target مرة)', 1);
+      HapticFeedback.heavyImpact();
+      if (!mounted) return;
+      showCelebration(
+        context,
+        'الصلاة على النبي ﷺ',
+        _target,
+        particle: Icons.favorite_rounded,
+        palette: [Color(0xFFFF6B8A), Color(0xFFFF9EB5), Color(0xFFE63E6D), gold],
+        title: 'اللهم صلِّ وسلِّم على سيدنا محمد',
+        body: 'أتممت $_target صلاة على النبي ﷺ في ${_label ?? 'الجمعة'}.\nتقبّل الله منك وبلّغك شفاعته.',
+      );
+    }
+  }
+
+  Future<void> _setTarget(int t) async {
+    final p = await SharedPreferences.getInstance();
+    await p.setInt('jum_target', t);
+    setState(() => _target = t);
+  }
+
+  Future<void> _reset() async {
+    final p = await SharedPreferences.getInstance();
+    await p.setInt('jum_$_dateKey', 0);
+    setState(() => _count = 0);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_label == null) return SizedBox.shrink();
+    final dark = isDark(context);
+    const goldLight = Color(0xFFF2DE9F);
+    final done = _count >= _target;
+    final prog = (_count / _target).clamp(0.0, 1.0).toDouble();
+    Widget chip(int t) {
+      final sel = _target == t;
+      return GestureDetector(
+        onTap: () => _setTarget(t),
+        child: AnimatedContainer(
+          duration: Duration(milliseconds: 200),
+          margin: EdgeInsets.symmetric(horizontal: 4),
+          padding: EdgeInsets.symmetric(horizontal: 14, vertical: 5),
+          decoration: BoxDecoration(
+            color: sel ? gold : Colors.transparent,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: gold, width: 1.2),
+          ),
+          child: Text('$t', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: sel ? deepGreen : goldLight)),
+        ),
+      );
+    }
+
+    return Padding(
+      padding: EdgeInsets.fromLTRB(16, 18, 16, 0),
+      child: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(begin: Alignment.topRight, end: Alignment.bottomLeft, colors: heroColors(dark)),
+          borderRadius: BorderRadius.circular(28),
+          border: Border.all(color: gold, width: 1.5),
+          boxShadow: [BoxShadow(color: (dark ? Colors.black : green).withOpacity(dark ? 0.45 : 0.30), blurRadius: 18, offset: Offset(0, 7))],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(27),
+          child: Stack(children: [
+            Positioned.fill(child: CustomPaint(painter: StarPatternPainter(gold.withOpacity(0.12)))),
+            Positioned.fill(
+              child: Padding(
+                padding: EdgeInsets.all(5),
+                child: DecoratedBox(decoration: BoxDecoration(borderRadius: BorderRadius.circular(23), border: Border.all(color: gold.withOpacity(0.40), width: 0.9))),
+              ),
+            ),
+            Padding(
+              padding: EdgeInsets.fromLTRB(18, 18, 18, 16),
+              child: Column(children: [
+                Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                  Icon(Icons.auto_awesome, color: goldLight, size: 22),
+                  SizedBox(width: 8),
+                  Text(_label!, style: TextStyle(fontFamily: 'Rsail', fontSize: 30, height: 1.4, fontWeight: FontWeight.w700, color: goldLight)),
+                  SizedBox(width: 8),
+                  Icon(Icons.auto_awesome, color: goldLight, size: 22),
+                ]),
+                SizedBox(height: 4),
+                Text('أَكْثِرُوا الصَّلَاةَ عَلَيَّ يَوْمَ الْجُمُعَةِ وَلَيْلَةَ الْجُمُعَةِ', textAlign: TextAlign.center, style: TextStyle(color: Colors.white, fontSize: 17, height: 1.9, fontWeight: FontWeight.w600)),
+                SizedBox(height: 12),
+                GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTapDown: (_) => setState(() => _pressed = true),
+                  onTapUp: (_) => setState(() => _pressed = false),
+                  onTapCancel: () => setState(() => _pressed = false),
+                  onTap: _tap,
+                  child: AnimatedScale(
+                    scale: _pressed ? 0.96 : 1.0,
+                    duration: Duration(milliseconds: 90),
+                    child: SizedBox(
+                      width: 156,
+                      height: 156,
+                      child: Stack(alignment: Alignment.center, children: [
+                        SizedBox.expand(child: CustomPaint(painter: _CounterRingPainter(prog, goldLight, done))),
+                        Container(
+                          margin: EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            gradient: LinearGradient(begin: Alignment.topRight, end: Alignment.bottomLeft, colors: [lighten(0.16), deepGreen2]),
+                            border: Border.all(color: gold, width: 2),
+                            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.30), blurRadius: 12, offset: Offset(0, 4))],
+                          ),
+                          child: Center(
+                            child: Column(mainAxisSize: MainAxisSize.min, children: [
+                              done ? Icon(Icons.check_rounded, color: goldLight, size: 40) : Text('$_count', style: TextStyle(color: Colors.white, fontSize: 38, fontWeight: FontWeight.w900, height: 1.1)),
+                              Text(done ? 'تمّ  $_target' : 'من $_target', style: TextStyle(color: goldLight, fontSize: 14.5)),
+                            ]),
+                          ),
+                        ),
+                      ]),
+                    ),
+                  ),
+                ),
+                SizedBox(height: 8),
+                Text('اللهم صلِّ وسلِّم وبارك على سيدنا محمد وعلى آله وصحبه', textAlign: TextAlign.center, style: TextStyle(color: goldLight, fontSize: 15, height: 1.8)),
+                SizedBox(height: 8),
+                Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                  for (final t in [100, 300, 1000]) chip(t),
+                  if (_count > 0) ...[
+                    SizedBox(width: 6),
+                    InkWell(
+                      onTap: _reset,
+                      customBorder: CircleBorder(),
+                      child: Container(
+                        padding: EdgeInsets.all(6),
+                        decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: gold.withOpacity(0.8), width: 1.1)),
+                        child: Icon(Icons.restart_alt, size: 18, color: goldLight),
+                      ),
+                    ),
+                  ],
+                ]),
+              ]),
+            ),
+          ]),
+        ),
+      ),
+    );
+  }
+}
+
 class HomeShell extends StatefulWidget {
   const HomeShell({super.key});
   @override
@@ -390,59 +601,73 @@ class _HomeShellState extends State<HomeShell> {
   @override
   Widget build(BuildContext context) {
     final dark = isDark(context);
-    const goldLight = Color(0xFFF2DE9F);
-    final barRadius = BorderRadius.circular(40);
+    final barRadius = BorderRadius.circular(30);
+    final bg = Theme.of(context).scaffoldBackgroundColor;
     return Scaffold(
       body: IndexedStack(index: selected, children: pages),
       bottomNavigationBar: SafeArea(
         top: false,
-        child: Container(
-          margin: EdgeInsets.fromLTRB(10, 6, 10, 12),
-          height: 96,
-          decoration: BoxDecoration(
-            gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: dark ? [deepGreen, deepDark2] : [green, deepGreen2]),
-            borderRadius: barRadius,
-            border: Border.all(color: gold.withOpacity(0.6), width: 1.2),
-            boxShadow: [
-              BoxShadow(color: Colors.black.withOpacity(0.30), blurRadius: 20, offset: Offset(0, 8)),
-              BoxShadow(color: green.withOpacity(0.35), blurRadius: 28, spreadRadius: 1),
-            ],
-          ),
-          child: ClipRRect(
-            borderRadius: barRadius,
-            child: LayoutBuilder(builder: (context, bc) {
-              final itemW = bc.maxWidth / _icons.length;
-              return Stack(children: [
-              Positioned.fill(child: CustomPaint(painter: StarPatternPainter(gold.withOpacity(0.10)))),
+        child: SizedBox(
+          height: 108,
+          child: LayoutBuilder(builder: (context, bc) {
+            const side = 12.0;
+            final itemW = (bc.maxWidth - side * 2) / _icons.length;
+            return Stack(clipBehavior: Clip.none, children: [
+              // الشريط: لوحة زجاجية فاتحة بلون الثيم وإطار ذهبي رفيع
               Positioned(
-                top: 0,
-                left: 26,
-                right: 26,
-                child: Container(
-                  height: 1.4,
-                  decoration: BoxDecoration(gradient: LinearGradient(colors: [Colors.transparent, goldLight.withOpacity(0.9), Colors.transparent])),
-                ),
-              ),
-              // كبسولة ذهبية تنزلق إلى الأيقونة المختارة
-              AnimatedPositionedDirectional(
-                duration: Duration(milliseconds: 420),
-                curve: Curves.easeOutBack,
-                start: selected * itemW + (itemW - 72) / 2,
-                top: 13.9,
-                width: 72,
-                height: 44,
+                left: side,
+                right: side,
+                bottom: 12,
+                height: 76,
                 child: Container(
                   decoration: BoxDecoration(
-                    gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Color(0xFFF7E8B5), gold]),
-                    borderRadius: BorderRadius.circular(22),
-                    boxShadow: [BoxShadow(color: gold.withOpacity(0.55), blurRadius: 16, offset: Offset(0, 3))],
+                    gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: dark ? [darkTint(0.22), darkTint(0.10)] : [Colors.white, tint(0.14)]),
+                    borderRadius: barRadius,
+                    border: Border.all(color: gold.withOpacity(0.70), width: 1.3),
+                    boxShadow: [
+                      BoxShadow(color: Colors.black.withOpacity(dark ? 0.45 : 0.14), blurRadius: 20, offset: Offset(0, 8)),
+                      BoxShadow(color: green.withOpacity(dark ? 0.18 : 0.12), blurRadius: 26),
+                    ],
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(29),
+                    child: Stack(children: [
+                      Positioned.fill(child: CustomPaint(painter: StarPatternPainter(gold.withOpacity(0.08)))),
+                      Row(children: [for (int i = 0; i < _icons.length; i++) Expanded(child: _navItem(i))]),
+                    ]),
                   ),
                 ),
               ),
-              Row(children: [for (int i = 0; i < _icons.length; i++) Expanded(child: _navItem(i))]),
-              ]);
-            }),
-          ),
+              // فقاعة الأيقونة المختارة: تبرز فوق الشريط وتنزلق بين الأقسام
+              AnimatedPositionedDirectional(
+                duration: Duration(milliseconds: 420),
+                curve: Curves.easeOutBack,
+                start: side + selected * itemW + (itemW - 68) / 2,
+                top: 0,
+                width: 68,
+                height: 68,
+                child: Container(
+                  padding: EdgeInsets.all(5),
+                  decoration: BoxDecoration(shape: BoxShape.circle, color: bg, boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.16), blurRadius: 10, offset: Offset(0, 3))]),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: LinearGradient(begin: Alignment.topRight, end: Alignment.bottomLeft, colors: [lighten(0.14), deepGreen2]),
+                      border: Border.all(color: gold, width: 2),
+                      boxShadow: [BoxShadow(color: green.withOpacity(0.45), blurRadius: 14, offset: Offset(0, 4))],
+                    ),
+                    child: Center(
+                      child: AnimatedSwitcher(
+                        duration: Duration(milliseconds: 280),
+                        transitionBuilder: (w, a) => ScaleTransition(scale: a, child: FadeTransition(opacity: a, child: w)),
+                        child: Icon(_iconsSel[selected], key: ValueKey(selected), size: 34, color: Colors.white),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ]);
+          }),
         ),
       ),
     );
@@ -456,29 +681,24 @@ class _HomeShellState extends State<HomeShell> {
         if (selected != i) HapticFeedback.selectionClick();
         setState(() => selected = i);
       },
-      child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+      child: Column(mainAxisAlignment: MainAxisAlignment.end, children: [
         SizedBox(
-          width: 72,
-          height: 44,
+          height: 40,
           child: Center(
-            child: AnimatedScale(
-              scale: sel ? 1.18 : 1.0,
-              duration: Duration(milliseconds: 380),
-              curve: Curves.easeOutBack,
-              child: TweenAnimationBuilder<Color?>(
-                tween: ColorTween(end: sel ? deepGreen : Colors.white.withOpacity(0.8)),
-                duration: Duration(milliseconds: 300),
-                builder: (_, col, __) => Icon(sel ? _iconsSel[i] : _icons[i], size: 31, color: col),
-              ),
+            child: AnimatedOpacity(
+              opacity: sel ? 0.0 : 1.0,
+              duration: Duration(milliseconds: 200),
+              child: Icon(_icons[i], size: 34, color: accent(context).withOpacity(0.85)),
             ),
           ),
         ),
-        SizedBox(height: 5),
+        SizedBox(height: 3),
         AnimatedDefaultTextStyle(
           duration: Duration(milliseconds: 250),
-          style: TextStyle(fontSize: 14, height: 1.2, fontWeight: sel ? FontWeight.w800 : FontWeight.w600, color: sel ? Color(0xFFF2DE9F) : Colors.white.withOpacity(0.65)),
+          style: TextStyle(fontSize: sel ? 15 : 13.5, height: 1.2, fontWeight: sel ? FontWeight.w800 : FontWeight.w600, color: sel ? accent(context) : ink(context).withOpacity(0.62)),
           child: Text(_labels[i], maxLines: 1),
         ),
+        SizedBox(height: 9),
       ]),
     );
   }
@@ -509,6 +729,7 @@ class HomePage extends StatelessWidget {
                   )
                 : SizedBox.shrink(),
           ),
+          FridayCard(),
           SizedBox(height: 22),
           Padding(padding: EdgeInsets.symmetric(horizontal: 16), child: ThanksCard()),
           _SectionTitle('مواقيت الصلاة'),
@@ -595,7 +816,7 @@ class _HomeHeroState extends State<_HomeHero> {
     final radius = BorderRadius.vertical(bottom: Radius.circular(38));
     return Container(
       decoration: BoxDecoration(
-        gradient: LinearGradient(begin: Alignment.topRight, end: Alignment.bottomLeft, colors: dark ? [deepDark, deepGreen2] : [deepGreen, green2]),
+        gradient: LinearGradient(begin: Alignment.topRight, end: Alignment.bottomLeft, colors: heroColors(dark)),
         borderRadius: radius,
         boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.25), blurRadius: 20, offset: Offset(0, 8))],
       ),
@@ -1019,14 +1240,36 @@ class SectionCard extends StatelessWidget {
       );
 }
 
-// ===================== بطاقة قسم الأوراد: لوحة غنية بنجمة ذهبية وزخرفة خفيفة =====================
+// ===================== بطاقة قسم الأوراد والمسبحة: عشرة تصاميم يختار منها المستخدم =====================
+final ValueNotifier<int> tileDesign = ValueNotifier<int>(0);
+
+const List<String> tileDesignNames = [
+  'لوحة ذهبية',
+  'زجاجي شفاف',
+  'بطاقة بشريط جانبي',
+  'كبسولة',
+  'إطار مزدوج',
+  'كتلة ملونة',
+  'تدرّج فاتح بأيقونة خلفية',
+  'ليلي فاخر',
+  'خط بسيط',
+  'مجسّم بأيقونة بارزة',
+];
+
+Future<void> setTileDesign(int i) async {
+  tileDesign.value = i;
+  final p = await SharedPreferences.getInstance();
+  await p.setInt('tile_design', i);
+}
+
 class SectionTile extends StatefulWidget {
   final String title, subtitle;
   final IconData icon;
   final VoidCallback? onTap;
   final bool highlight; // لوحة ذهبية للقسم المميز
   final double shade; // 0 = أفتح درجة من لون الثيم، 1 = أغمق درجة (تدرّج على مستوى القائمة)
-  const SectionTile({super.key, required this.title, required this.subtitle, required this.icon, required this.onTap, this.highlight = false, this.shade = 0});
+  final int? design; // لمعاينة تصميم بعينه (وإلا يُستعمل التصميم المختار في الإعدادات)
+  const SectionTile({super.key, required this.title, required this.subtitle, required this.icon, required this.onTap, this.highlight = false, this.shade = 0, this.design});
   @override
   State<SectionTile> createState() => _SectionTileState();
 }
@@ -1055,22 +1298,68 @@ class _TileMedallionPainter extends CustomPainter {
   bool shouldRepaint(covariant _TileMedallionPainter old) => old.a != a || old.b != b || old.line != line;
 }
 
+// ألوان البطاقة المشتركة بين كل التصاميم
+class _TC {
+  final bool dark, hl;
+  final List<Color> bg; // تدرّج غامق بدرجة القسم (أو ذهبي للقسم المميز)
+  final Color c; // لون التصميم الأساسي: الثيم أو الذهبي للقسم المميز
+  final Color titleC, subC; // ألوان النص فوق التدرّج الغامق
+  _TC(this.dark, this.hl, this.bg, this.c, this.titleC, this.subC);
+}
+
 class _SectionTileState extends State<SectionTile> {
   bool pressed = false;
+  static const Color goldLight = Color(0xFFF2DE9F);
 
   @override
   Widget build(BuildContext context) {
+    if (widget.design != null) return _body(context, widget.design!);
+    return ValueListenableBuilder<int>(valueListenable: tileDesign, builder: (c, d, _) => _body(c, d));
+  }
+
+  Widget _body(BuildContext context, int d) {
     final dark = isDark(context);
-    const goldLight = Color(0xFFF2DE9F);
     final hl = widget.highlight;
     final sh = widget.shade.clamp(0.0, 1.0).toDouble();
     final List<Color> bg = hl
         ? [Color(0xFFF7E8B5), gold]
         : (dark
-            ? [Color.lerp(deepGreen, deepDark, sh)!, Color.lerp(deepGreen2, deepDark2, sh)!]
-            : [Color.lerp(lighten(0.06), deepGreen, sh)!, Color.lerp(green2, deepDark, sh * 0.9)!]);
-    final titleColor = hl ? deepGreen : goldLight;
-    final subColor = hl ? deepGreen.withOpacity(0.80) : Colors.white70;
+            ? [Color.lerp(deepGreen, deepDark, sh)!, Color.lerp(deepGreen2, deepDark2, sh)!, if (hasThree) Color.lerp(deepGreen3, deepDark3, sh)!]
+            : [Color.lerp(lighten(0.06), deepGreen, sh)!, Color.lerp(green2, deepDark, sh * 0.9)!, if (hasThree) Color.lerp(green3, deepDark, sh * 0.9)!]);
+    final theme = dark ? lighten(0.30) : green;
+    final t = _TC(dark, hl, bg, hl ? gold : theme, hl ? deepGreen : goldLight, hl ? deepGreen.withOpacity(0.80) : Colors.white70);
+    final Widget card;
+    switch (d) {
+      case 1:
+        card = _d1(context, t);
+        break;
+      case 2:
+        card = _d2(context, t);
+        break;
+      case 3:
+        card = _d3(context, t);
+        break;
+      case 4:
+        card = _d4(context, t);
+        break;
+      case 5:
+        card = _d5(context, t);
+        break;
+      case 6:
+        card = _d6(context, t);
+        break;
+      case 7:
+        card = _d7(context, t);
+        break;
+      case 8:
+        card = _d8(context, t);
+        break;
+      case 9:
+        card = _d9(context, t);
+        break;
+      default:
+        card = _d0(context, t);
+    }
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTapDown: (_) => setState(() => pressed = true),
@@ -1080,68 +1369,383 @@ class _SectionTileState extends State<SectionTile> {
       child: AnimatedScale(
         scale: pressed ? 0.98 : 1.0,
         duration: Duration(milliseconds: 90),
-        child: Container(
-          margin: EdgeInsets.only(bottom: 14),
-          decoration: BoxDecoration(
-            gradient: LinearGradient(begin: Alignment.topRight, end: Alignment.bottomLeft, colors: bg),
-            borderRadius: BorderRadius.circular(26),
-            border: Border.all(color: hl ? Colors.white.withOpacity(0.8) : gold, width: 1.4),
-            boxShadow: [BoxShadow(color: (hl ? gold : (dark ? Colors.black : green)).withOpacity(hl ? 0.45 : (dark ? 0.45 : 0.28)), blurRadius: 16, offset: Offset(0, 6))],
+        child: Padding(padding: EdgeInsets.only(bottom: d == 8 ? 4 : 14), child: card),
+      ),
+    );
+  }
+
+  // ---------- عناصر مشتركة ----------
+  Widget _arrow(Color border, Color icon, Color fill) => Container(
+        width: 36,
+        height: 36,
+        decoration: BoxDecoration(shape: BoxShape.circle, color: fill, border: Border.all(color: border, width: 1.2)),
+        child: Icon(Icons.chevron_left, color: icon, size: 24),
+      );
+
+  Widget _texts(Color tc, Color sc, double ts, {bool rsail = false, bool center = false}) => Column(
+        crossAxisAlignment: center ? CrossAxisAlignment.center : CrossAxisAlignment.start,
+        children: [
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: center ? Alignment.center : AlignmentDirectional.centerStart,
+            child: Text(widget.title,
+                style: rsail ? TextStyle(fontFamily: 'Rsail', fontSize: ts, height: 1.4, fontWeight: FontWeight.w700, color: tc) : TextStyle(fontSize: ts, fontWeight: FontWeight.w800, color: tc, height: 1.4)),
           ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(25),
-            child: Stack(children: [
-              Positioned.fill(child: CustomPaint(painter: StarPatternPainter((hl ? Colors.white : gold).withOpacity(hl ? 0.22 : 0.12)))),
-              // خط داخلي رفيع
-              Positioned.fill(
-                child: Padding(
-                  padding: EdgeInsets.all(5),
-                  child: DecoratedBox(decoration: BoxDecoration(borderRadius: BorderRadius.circular(21), border: Border.all(color: (hl ? Colors.white : gold).withOpacity(0.40), width: 0.9))),
+          SizedBox(height: 2),
+          Text(widget.subtitle, textAlign: center ? TextAlign.center : TextAlign.start, style: TextStyle(fontSize: 13.5, height: 1.5, color: sc)),
+        ],
+      );
+
+  // ---------- ١: لوحة ذهبية (الأصلي) ----------
+  Widget _d0(BuildContext ctx, _TC t) {
+    final hl = t.hl;
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(begin: Alignment.topRight, end: Alignment.bottomLeft, colors: t.bg),
+        borderRadius: BorderRadius.circular(26),
+        border: Border.all(color: hl ? Colors.white.withOpacity(0.8) : gold, width: 1.4),
+        boxShadow: [BoxShadow(color: (hl ? gold : (t.dark ? Colors.black : green)).withOpacity(hl ? 0.45 : (t.dark ? 0.45 : 0.28)), blurRadius: 16, offset: Offset(0, 6))],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(25),
+        child: Stack(children: [
+          Positioned.fill(child: CustomPaint(painter: StarPatternPainter((hl ? Colors.white : gold).withOpacity(hl ? 0.22 : 0.12)))),
+          Positioned.fill(
+            child: Padding(
+              padding: EdgeInsets.all(5),
+              child: DecoratedBox(decoration: BoxDecoration(borderRadius: BorderRadius.circular(21), border: Border.all(color: (hl ? Colors.white : gold).withOpacity(0.40), width: 0.9))),
+            ),
+          ),
+          Padding(
+            padding: EdgeInsets.fromLTRB(18, 18, 16, 18),
+            child: Row(children: [
+              SizedBox(
+                width: 62,
+                height: 62,
+                child: CustomPaint(
+                  painter: hl ? _TileMedallionPainter(deepGreen2, deepGreen, Colors.white) : _TileMedallionPainter(Color(0xFFF7E8B5), gold, Color(0xFF8A6D1F)),
+                  child: Center(child: Icon(widget.icon, color: hl ? goldLight : deepGreen, size: 27)),
                 ),
               ),
-              Padding(
-                padding: EdgeInsets.fromLTRB(18, 18, 16, 18),
-                child: Row(children: [
-                  SizedBox(
-                    width: 62,
-                    height: 62,
-                    child: CustomPaint(
-                      painter: hl ? _TileMedallionPainter(deepGreen2, deepGreen, Colors.white) : _TileMedallionPainter(Color(0xFFF7E8B5), gold, Color(0xFF8A6D1F)),
-                      child: Center(child: Icon(widget.icon, color: hl ? goldLight : deepGreen, size: 27)),
-                    ),
-                  ),
-                  SizedBox(width: 14),
-                  Expanded(
-                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      FittedBox(
-                        fit: BoxFit.scaleDown,
-                        alignment: AlignmentDirectional.centerStart,
-                        child: Text(widget.title, style: TextStyle(fontFamily: 'Rsail', fontSize: 25, height: 1.4, fontWeight: FontWeight.w700, color: titleColor)),
-                      ),
-                      SizedBox(height: 2),
-                      Text(widget.subtitle, style: TextStyle(fontSize: 13.5, height: 1.5, color: subColor)),
-                    ]),
-                  ),
-                  SizedBox(width: 8),
-                  Container(
-                    width: 36,
-                    height: 36,
-                    decoration: BoxDecoration(shape: BoxShape.circle, color: (hl ? deepGreen : gold).withOpacity(0.20), border: Border.all(color: hl ? deepGreen : gold, width: 1.2)),
-                    child: Icon(Icons.chevron_left, color: hl ? deepGreen : goldLight, size: 24),
-                  ),
-                ]),
+              SizedBox(width: 14),
+              Expanded(child: _texts(t.titleC, t.subC, 25, rsail: true)),
+              SizedBox(width: 8),
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(shape: BoxShape.circle, color: (hl ? deepGreen : gold).withOpacity(0.20), border: Border.all(color: hl ? deepGreen : gold, width: 1.2)),
+                child: Icon(Icons.chevron_left, color: hl ? deepGreen : goldLight, size: 24),
               ),
             ]),
           ),
+        ]),
+      ),
+    );
+  }
+
+  // ---------- ٢: زجاجي شفاف ----------
+  Widget _d1(BuildContext ctx, _TC t) {
+    final c = t.c;
+    return Container(
+      padding: EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topRight,
+          end: Alignment.bottomLeft,
+          colors: [c.withOpacity(t.dark ? 0.24 : 0.18), c.withOpacity(t.dark ? 0.08 : 0.06), c.withOpacity(t.dark ? 0.16 : 0.12)],
+          stops: [0.0, 0.55, 1.0],
+        ),
+        borderRadius: BorderRadius.circular(26),
+        border: Border.all(color: c.withOpacity(0.65), width: 1.5),
+        boxShadow: [BoxShadow(color: c.withOpacity(0.16), blurRadius: 18, offset: Offset(0, 4))],
+      ),
+      child: Row(children: [
+        Container(
+          width: 54,
+          height: 54,
+          decoration: BoxDecoration(shape: BoxShape.circle, color: c.withOpacity(0.20), border: Border.all(color: c.withOpacity(0.8), width: 1.4)),
+          child: Icon(widget.icon, color: accent(ctx), size: 28),
+        ),
+        SizedBox(width: 14),
+        Expanded(child: _texts(accent(ctx), ink(ctx).withOpacity(0.72), 20)),
+        _arrow(c.withOpacity(0.7), accent(ctx), c.withOpacity(0.12)),
+      ]),
+    );
+  }
+
+  // ---------- ٣: بطاقة بشريط جانبي ----------
+  Widget _d2(BuildContext ctx, _TC t) {
+    return Container(
+      decoration: BoxDecoration(
+        color: t.dark ? darkTint(0.14) : Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: t.c.withOpacity(0.30), width: 1.2),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(t.dark ? 0.35 : 0.08), blurRadius: 14, offset: Offset(0, 5))],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(21),
+        child: IntrinsicHeight(
+          child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            Container(width: 9, decoration: BoxDecoration(gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [t.bg.first, t.bg.last]))),
+            Expanded(
+              child: Padding(
+                padding: EdgeInsets.all(14),
+                child: Row(children: [
+                  Container(
+                    width: 50,
+                    height: 50,
+                    decoration: BoxDecoration(color: t.c.withOpacity(0.14), borderRadius: BorderRadius.circular(15), border: Border.all(color: t.c.withOpacity(0.45))),
+                    child: Icon(widget.icon, color: accent(ctx), size: 27),
+                  ),
+                  SizedBox(width: 12),
+                  Expanded(child: _texts(ink(ctx), ink(ctx).withOpacity(0.65), 18.5)),
+                  Icon(Icons.chevron_left, color: t.c, size: 28),
+                ]),
+              ),
+            ),
+          ]),
         ),
       ),
     );
   }
+
+  // ---------- ٤: كبسولة ----------
+  Widget _d3(BuildContext ctx, _TC t) {
+    return Container(
+      padding: EdgeInsets.fromLTRB(12, 10, 16, 10),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(begin: AlignmentDirectional.centerStart, end: AlignmentDirectional.centerEnd, colors: t.bg),
+        borderRadius: BorderRadius.circular(44),
+        border: Border.all(color: t.hl ? Colors.white.withOpacity(0.8) : gold.withOpacity(0.7), width: 1.2),
+        boxShadow: [BoxShadow(color: (t.hl ? gold : green).withOpacity(0.35), blurRadius: 14, offset: Offset(0, 6))],
+      ),
+      child: Row(children: [
+        Container(
+          width: 52,
+          height: 52,
+          decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.white, boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.25), blurRadius: 6, offset: Offset(0, 2))]),
+          child: Icon(widget.icon, color: deepGreen, size: 28),
+        ),
+        SizedBox(width: 12),
+        Expanded(child: _texts(t.titleC, t.subC, 19)),
+        Icon(Icons.arrow_back_rounded, color: t.titleC, size: 24),
+      ]),
+    );
+  }
+
+  // ---------- ٥: إطار مزدوج ----------
+  Widget _d4(BuildContext ctx, _TC t) {
+    return Container(
+      padding: EdgeInsets.all(5),
+      decoration: BoxDecoration(
+        color: t.dark ? darkTint(0.12) : Color(0xFFFFFBF0),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: gold, width: 1.6),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(t.dark ? 0.35 : 0.08), blurRadius: 12, offset: Offset(0, 4))],
+      ),
+      child: Container(
+        padding: EdgeInsets.symmetric(vertical: 14, horizontal: 12),
+        decoration: BoxDecoration(color: t.hl ? gold.withOpacity(0.18) : null, borderRadius: BorderRadius.circular(15), border: Border.all(color: gold.withOpacity(0.6), width: 0.9)),
+        child: Column(children: [
+          Icon(widget.icon, size: 30, color: accent(ctx)),
+          _texts(accent(ctx), ink(ctx).withOpacity(0.7), 28, rsail: true, center: true),
+          SizedBox(height: 4),
+          Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+            Container(width: 44, height: 1, color: gold.withOpacity(0.7)),
+            SizedBox(width: 6),
+            Icon(Icons.star_rounded, size: 13, color: gold),
+            SizedBox(width: 6),
+            Container(width: 44, height: 1, color: gold.withOpacity(0.7)),
+          ]),
+        ]),
+      ),
+    );
+  }
+
+  // ---------- ٦: كتلة ملونة ----------
+  Widget _d5(BuildContext ctx, _TC t) {
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: gold.withOpacity(0.8), width: 1.4),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(t.dark ? 0.40 : 0.12), blurRadius: 14, offset: Offset(0, 5))],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(23),
+        child: IntrinsicHeight(
+          child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            Container(
+              width: 88,
+              decoration: BoxDecoration(gradient: LinearGradient(begin: Alignment.topRight, end: Alignment.bottomLeft, colors: t.bg)),
+              child: Stack(children: [
+                Positioned.fill(child: CustomPaint(painter: StarPatternPainter(Colors.white.withOpacity(0.14)))),
+                Center(child: Icon(widget.icon, size: 40, color: t.hl ? deepGreen : Colors.white)),
+              ]),
+            ),
+            Expanded(
+              child: Container(
+                color: t.dark ? darkTint(0.12) : Colors.white,
+                padding: EdgeInsets.fromLTRB(16, 16, 12, 16),
+                child: Row(children: [
+                  Expanded(child: _texts(ink(ctx), ink(ctx).withOpacity(0.65), 19.5)),
+                  Icon(Icons.chevron_left, color: t.c, size: 28),
+                ]),
+              ),
+            ),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  // ---------- ٧: تدرّج فاتح بأيقونة خلفية ----------
+  Widget _d6(BuildContext ctx, _TC t) {
+    final c = t.c;
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(begin: AlignmentDirectional.centerStart, end: AlignmentDirectional.centerEnd, colors: [c.withOpacity(0.12), c.withOpacity(t.dark ? 0.34 : 0.30)]),
+        borderRadius: BorderRadius.circular(26),
+        border: Border.all(color: c.withOpacity(0.45), width: 1.2),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(25),
+        child: Stack(children: [
+          PositionedDirectional(end: -10, bottom: -22, child: Icon(widget.icon, size: 118, color: c.withOpacity(0.16))),
+          Padding(
+            padding: EdgeInsets.fromLTRB(20, 18, 16, 18),
+            child: Row(children: [
+              Expanded(child: _texts(accent(ctx), ink(ctx).withOpacity(0.78), 22)),
+              _arrow(c.withOpacity(0.8), accent(ctx), c.withOpacity(0.14)),
+            ]),
+          ),
+        ]),
+      ),
+    );
+  }
+
+  // ---------- ٨: ليلي فاخر ----------
+  Widget _d7(BuildContext ctx, _TC t) {
+    return Container(
+      padding: EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(begin: Alignment.topRight, end: Alignment.bottomLeft, colors: t.hl ? [Color(0xFF3A2F12), Color(0xFF17120A)] : [Color(0xFF181D1F), Color(0xFF0B0E0F)]),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: gold, width: 1.4),
+        boxShadow: [BoxShadow(color: gold.withOpacity(0.28), blurRadius: 18, offset: Offset(0, 4))],
+      ),
+      child: Row(children: [
+        Container(
+          width: 54,
+          height: 54,
+          decoration: BoxDecoration(shape: BoxShape.circle, color: gold.withOpacity(0.10), border: Border.all(color: gold, width: 1.4)),
+          child: Icon(widget.icon, color: goldLight, size: 27),
+        ),
+        SizedBox(width: 14),
+        Expanded(child: _texts(goldLight, Colors.white60, 25, rsail: true)),
+        Icon(Icons.arrow_back_ios_new_rounded, color: goldLight, size: 18),
+      ]),
+    );
+  }
+
+  // ---------- ٩: خط بسيط ----------
+  Widget _d8(BuildContext ctx, _TC t) {
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: 6, vertical: 14),
+      decoration: BoxDecoration(
+        color: t.hl ? gold.withOpacity(0.14) : null,
+        border: Border(bottom: BorderSide(color: gold.withOpacity(0.65), width: 1.2)),
+      ),
+      child: Row(children: [
+        Icon(widget.icon, color: accent(ctx), size: 32),
+        SizedBox(width: 14),
+        Expanded(child: _texts(ink(ctx), ink(ctx).withOpacity(0.62), 19)),
+        Icon(Icons.chevron_left, color: accent(ctx), size: 26),
+      ]),
+    );
+  }
+
+  // ---------- ١٠: مجسّم بأيقونة بارزة ----------
+  Widget _d9(BuildContext ctx, _TC t) {
+    return Stack(clipBehavior: Clip.none, children: [
+      Container(
+        margin: EdgeInsetsDirectional.only(start: 26),
+        padding: EdgeInsetsDirectional.fromSTEB(48, 18, 16, 18),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(begin: AlignmentDirectional.centerStart, end: AlignmentDirectional.centerEnd, colors: t.bg),
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: Colors.white.withOpacity(0.25), width: 1.2),
+          boxShadow: [
+            BoxShadow(color: Colors.black.withOpacity(0.40), blurRadius: 22, offset: Offset(0, 10)),
+            BoxShadow(color: t.c.withOpacity(0.35), blurRadius: 18),
+          ],
+        ),
+        child: Row(children: [
+          Expanded(child: _texts(t.titleC, t.subC, 24, rsail: true)),
+          Icon(Icons.chevron_left, color: t.titleC, size: 28),
+        ]),
+      ),
+      PositionedDirectional(
+        start: 0,
+        top: 0,
+        bottom: 0,
+        child: Center(
+          child: Container(
+            width: 60,
+            height: 60,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: Colors.white,
+              border: Border.all(color: gold, width: 2.5),
+              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.35), blurRadius: 12, offset: Offset(0, 5))],
+            ),
+            child: Icon(widget.icon, color: t.hl ? deepGreen : t.bg.first, size: 30),
+          ),
+        ),
+      ),
+    ]);
+  }
+}
+
+// ---------- صفحة اختيار التصميم (من الإعدادات) ----------
+class TileDesignPage extends StatelessWidget {
+  const TileDesignPage({super.key});
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(title: Text('تغيير التصميم')),
+        body: ValueListenableBuilder<int>(
+          valueListenable: tileDesign,
+          builder: (context, sel, _) => ListView(padding: EdgeInsets.all(16), children: [
+            Text('اختاري تصميماً لأقسام صفحتي الأوراد والمسبحة، وسيتغيّر في الصفحتين فوراً.', textAlign: TextAlign.center, style: TextStyle(fontSize: 15, height: 1.7)),
+            SizedBox(height: 16),
+            for (int i = 0; i < tileDesignNames.length; i++) ...[
+              Row(children: [
+                Text('${i + 1}. ${tileDesignNames[i]}', style: TextStyle(fontSize: 16, fontWeight: sel == i ? FontWeight.w900 : FontWeight.w700, color: sel == i ? accent(context) : ink(context))),
+                Spacer(),
+                if (sel == i) Icon(Icons.check_circle_rounded, color: gold, size: 24),
+              ]),
+              SizedBox(height: 8),
+              SectionTile(
+                design: i,
+                shade: 0.3,
+                title: 'المسبعات',
+                subtitle: 'النص الكامل',
+                icon: Icons.format_list_numbered,
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  setTileDesign(i);
+                },
+              ),
+              SizedBox(height: 6),
+            ],
+          ]),
+        ),
+      );
 }
 
 // ===================== تحدي ما بعد الصلاة =====================
 // بعد كل صلاة من الخمس: قراءة المسبعات والصلوات الدرديرية والمنظومة، ويُحفظ التقدّم لكل يوم
-const List<int> challengePrayers = [0, 2, 3, 4, 5]; // الفجر، الظهر، العصر، المغرب، العشاء (دون الشروق)
+const List<int> challengePrayers = [0, 2, 3, 4, 5, -1]; // الفجر، الظهر، العصر، المغرب، العشاء، ثم وقت السحر (-1)؛ ترتيب العرض يضع السحر أولاً
 
 class _ChItem {
   final String title, asset;
@@ -1225,11 +1829,12 @@ class _PrayerChallengePageState extends State<PrayerChallengePage> {
     final p = await SharedPreferences.getInstance();
     await p.setStringList(_key, _done.toList());
     if (!wasDone && !prayerWasDone && _prayerDone(pi)) {
-      await addLog('تحدي ما بعد الصلاة', 'إتمام تحدي ما بعد ${prayerNames[challengePrayers[pi]]}', 1);
+      await addLog('تحدي ما بعد الصلاة', 'إتمام تحدي ${_when(pi)}', 1);
     }
     await _load();
     if (!wasDone && !dayWasDone && _done.length >= _total && mounted) {
       HapticFeedback.heavyImpact();
+      final badge = challengeBadges.where((b) => b.days == _streak).toList();
       showCelebration(
         context,
         'تحدي ما بعد الصلاة',
@@ -1237,7 +1842,7 @@ class _PrayerChallengePageState extends State<PrayerChallengePage> {
         particle: Icons.favorite_rounded,
         palette: [Color(0xFFFF6B8A), Color(0xFFFF9EB5), Color(0xFFE63E6D), gold],
         title: 'أبشر، أنت محبوب عند الله ورسوله ﷺ',
-        body: 'فلا يوفَّق لهذا العمل إلا محبوب.\nأتممت تحدي اليوم كاملاً، تقبّل الله منك.${_streak > 1 ? '\nأيام متتالية: $_streak' : ''}',
+        body: '${badge.isNotEmpty ? 'نلتَ ${badge.first.name}: $_streak يوماً متتالياً!\n' : ''}فلا يوفَّق لهذا العمل إلا محبوب.\nأتممت تحدي اليوم كاملاً، تقبّل الله منك.${_streak > 1 ? '\nأيام متتالية: $_streak' : ''}',
       );
     }
   }
@@ -1251,7 +1856,7 @@ class _PrayerChallengePageState extends State<PrayerChallengePage> {
     final m = ScaffoldMessenger.of(context);
     m.clearSnackBars();
     m.showSnackBar(SnackBar(
-      content: Text('هل أتممت ${it.title} بعد ${prayerNames[challengePrayers[pi]]}؟'),
+      content: Text('هل أتممت ${it.title} ${_when(pi)}؟'),
       action: SnackBarAction(label: 'تمّت', onPressed: () => _toggle(pi, ii)),
       duration: Duration(seconds: 7),
     ));
@@ -1274,6 +1879,9 @@ class _PrayerChallengePageState extends State<PrayerChallengePage> {
     await p.remove(_key);
     await _load();
   }
+
+  // اسم الوقت: وقت السحر أو بعد الصلاة
+  String _when(int pi) => challengePrayers[pi] == -1 ? 'في وقت السحر' : 'بعد ${prayerNames[challengePrayers[pi]]}';
 
   Color _ok(bool dark) => dark ? Color(0xFF4FD08A) : Color(0xFF2E9B5F);
 
@@ -1302,7 +1910,7 @@ class _PrayerChallengePageState extends State<PrayerChallengePage> {
           Text('$n / $_total', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w900)),
         ]),
         SizedBox(height: 4),
-        Text('المسبعات والصلوات الدرديرية والمنظومة بعد كل صلاة', style: TextStyle(color: Colors.white70, fontSize: 13, height: 1.5)),
+        Text('المسبعات والصلوات الدرديرية والمنظومة في السحر وبعد كل صلاة', style: TextStyle(color: Colors.white70, fontSize: 13, height: 1.5)),
         SizedBox(height: 12),
         ClipRRect(
           borderRadius: BorderRadius.circular(10),
@@ -1317,6 +1925,10 @@ class _PrayerChallengePageState extends State<PrayerChallengePage> {
         Wrap(spacing: 8, runSpacing: 8, children: [
           pill(Icons.local_fire_department_rounded, 'أيام متتالية: $_streak'),
           pill(Icons.emoji_events_rounded, 'أيام كاملة: $_fullDays'),
+          GestureDetector(
+            onTap: () => Navigator.push(context, SoftRoute(builder: (_) => ChallengeCalendarPage())),
+            child: pill(Icons.calendar_month_rounded, 'التقويم والأوسمة'),
+          ),
         ]),
       ]),
     );
@@ -1370,7 +1982,7 @@ class _PrayerChallengePageState extends State<PrayerChallengePage> {
     );
   }
 
-  Widget _prayerCard(int pi, DateTime time, bool current) {
+  Widget _prayerCard(int pi, String timeLabel, bool current) {
     final dark = isDark(context);
     final idx = challengePrayers[pi];
     final done = _prayerDone(pi);
@@ -1400,13 +2012,13 @@ class _PrayerChallengePageState extends State<PrayerChallengePage> {
               borderRadius: BorderRadius.circular(14),
               border: Border.all(color: gold, width: 1.4),
             ),
-            child: Icon(done ? Icons.check_rounded : prayerIcons[idx], color: Colors.white, size: 24),
+            child: Icon(done ? Icons.check_rounded : (idx == -1 ? Icons.nightlight_round : prayerIcons[idx]), color: Colors.white, size: 24),
           ),
           SizedBox(width: 12),
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Row(children: [
-                Text('بعد ${prayerNames[idx]}', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800, color: accent(context))),
+                Text(_when(pi), style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800, color: accent(context))),
                 if (current) ...[
                   SizedBox(width: 8),
                   Container(
@@ -1416,7 +2028,7 @@ class _PrayerChallengePageState extends State<PrayerChallengePage> {
                   ),
                 ],
               ]),
-              Text('${_fmt12(time)} ${_ampm(time)}', style: TextStyle(fontSize: 12.5, color: ink(context).withOpacity(0.65))),
+              Text(timeLabel, style: TextStyle(fontSize: 12.5, color: ink(context).withOpacity(0.65))),
             ]),
           ),
           Text('$cnt / ${challengeItems.length}', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: done ? ok : accent(context))),
@@ -1430,22 +2042,312 @@ class _PrayerChallengePageState extends State<PrayerChallengePage> {
   Widget build(BuildContext context) {
     final now = appNow();
     final times = prayerTimesFor(now);
+    // السحر: الثلث الأخير من الليل (من المغرب إلى الفجر)
+    final prevMaghrib = prayerTimesFor(now.subtract(Duration(days: 1)))[4];
+    final nextFajr = prayerTimesFor(now.add(Duration(days: 1)))[0];
+    final saharStartToday = prevMaghrib.add(Duration(milliseconds: ((times[0].difference(prevMaghrib).inMilliseconds) * 2 / 3).round()));
+    final saharStartTonight = times[4].add(Duration(milliseconds: ((nextFajr.difference(times[4]).inMilliseconds) * 2 / 3).round()));
+    final saharShown = now.isBefore(times[0]) ? saharStartToday : saharStartTonight;
+    final saharLabel = 'الثلث الأخير يبدأ ${_fmt12(saharShown)} ${_ampm(saharShown)}';
     int cur = -1;
-    for (int pi = 0; pi < challengePrayers.length; pi++) {
-      if (!times[challengePrayers[pi]].isAfter(now)) cur = pi;
+    if (!now.isBefore(saharStartToday) && now.isBefore(times[0])) {
+      cur = challengePrayers.indexOf(-1);
+    } else {
+      for (int pi = 0; pi < challengePrayers.length; pi++) {
+        final idx = challengePrayers[pi];
+        if (idx >= 0 && !times[idx].isAfter(now)) cur = pi;
+      }
+    }
+    // ترتيب العرض: السحر أولاً ثم الصلوات
+    final order = [challengePrayers.indexOf(-1), for (int pi = 0; pi < challengePrayers.length; pi++) if (challengePrayers[pi] >= 0) pi];
+    String labelOf(int pi) {
+      final idx = challengePrayers[pi];
+      if (idx == -1) return saharLabel;
+      return '${_fmt12(times[idx])} ${_ampm(times[idx])}';
     }
     return Scaffold(
       appBar: AppBar(
         title: Text('تحدي ما بعد الصلاة'),
-        actions: [IconButton(tooltip: 'تصفير اليوم', onPressed: _resetToday, icon: Icon(Icons.restart_alt))],
+        actions: [
+          IconButton(tooltip: 'التقويم والأوسمة', onPressed: () => Navigator.push(context, SoftRoute(builder: (_) => ChallengeCalendarPage())), icon: Icon(Icons.calendar_month_rounded)),
+          IconButton(tooltip: 'تصفير اليوم', onPressed: _resetToday, icon: Icon(Icons.restart_alt)),
+        ],
       ),
       body: !_loaded
           ? Center(child: CircularProgressIndicator())
           : ListView(padding: EdgeInsets.all(16), children: [
               _summary(),
               SizedBox(height: 16),
-              for (int pi = 0; pi < challengePrayers.length; pi++) _prayerCard(pi, times[challengePrayers[pi]], pi == cur),
+              for (final pi in order) _prayerCard(pi, labelOf(pi), pi == cur),
               Text('اضغط على الاسم لفتح النص، وعلى الدائرة لتأشير الإتمام. ويُحفظ تقدّمك لكل يوم.', textAlign: TextAlign.center, style: TextStyle(fontSize: 12.5, height: 1.7, color: ink(context).withOpacity(0.6))),
+            ]),
+    );
+  }
+}
+
+// ===================== تقويم التحدي والأوسمة =====================
+class ChBadge {
+  final int days;
+  final String name;
+  const ChBadge(this.days, this.name);
+}
+
+const List<ChBadge> challengeBadges = [ChBadge(7, 'وسام الأسبوع'), ChBadge(30, 'وسام الشهر'), ChBadge(100, 'وسام المئة')];
+const List<String> _arMonths = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
+const List<String> _arWeek = ['سبت', 'أحد', 'اثنين', 'ثلاثاء', 'أربعاء', 'خميس', 'جمعة'];
+const List<String> _chShort = ['المسبعات', 'الدرديرية', 'المنظومة'];
+
+class ChallengeCalendarPage extends StatefulWidget {
+  const ChallengeCalendarPage({super.key});
+  @override
+  State<ChallengeCalendarPage> createState() => _ChallengeCalendarPageState();
+}
+
+class _ChallengeCalendarPageState extends State<ChallengeCalendarPage> {
+  final Map<String, List<String>> _days = {};
+  DateTime _month = DateTime(DateTime.now().year, DateTime.now().month, 1);
+  int _best = 0, _fullDays = 0, _streak = 0;
+  bool _loaded = false;
+
+  int get _total => challengePrayers.length * challengeItems.length;
+  String _dk(DateTime d) => '${d.year}-${_two(d.month)}-${_two(d.day)}';
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final p = await SharedPreferences.getInstance();
+    final re = RegExp(r'^ch_\d{4}-\d{2}-\d{2}$');
+    final days = <String, List<String>>{};
+    for (final k in p.getKeys()) {
+      if (re.hasMatch(k)) days[k.substring(3)] = p.getStringList(k) ?? [];
+    }
+    // أطول سلسلة أيام كاملة متتالية
+    final full = [
+      for (final e in days.entries)
+        if (e.value.length >= _total) e.key
+    ]..sort();
+    int best = 0, run = 0;
+    DateTime? prev;
+    for (final k in full) {
+      final q = k.split('-').map(int.parse).toList();
+      final d = DateTime.utc(q[0], q[1], q[2]);
+      if (prev != null && d.difference(prev).inDays == 1) {
+        run++;
+      } else {
+        run = 1;
+      }
+      if (run > best) best = run;
+      prev = d;
+    }
+    // السلسلة الحالية
+    final n = DateTime.now();
+    int streak = 0;
+    for (int i = 0; i < 1000; i++) {
+      final d = DateTime(n.year, n.month, n.day - i);
+      final isFull = (days[_dk(d)]?.length ?? 0) >= _total;
+      if (i == 0 && !isFull) continue;
+      if (isFull) {
+        streak++;
+      } else {
+        break;
+      }
+    }
+    if (!mounted) return;
+    setState(() {
+      _days
+        ..clear()
+        ..addAll(days);
+      _best = best;
+      _fullDays = full.length;
+      _streak = streak;
+      _loaded = true;
+    });
+  }
+
+  Widget _stat(String value, String label, IconData ic) {
+    return Expanded(
+      child: Container(
+        margin: EdgeInsets.symmetric(horizontal: 4),
+        padding: EdgeInsets.symmetric(vertical: 12, horizontal: 6),
+        decoration: BoxDecoration(
+          color: softBg(context),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: gold.withOpacity(0.55), width: 1.2),
+        ),
+        child: Column(children: [
+          Icon(ic, color: accent(context), size: 22),
+          SizedBox(height: 4),
+          Text(value, style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: accent(context), height: 1.2)),
+          Text(label, textAlign: TextAlign.center, style: TextStyle(fontSize: 12.5, height: 1.4, color: ink(context).withOpacity(0.75))),
+        ]),
+      ),
+    );
+  }
+
+  Widget _cell(DateTime? d) {
+    if (d == null) return Expanded(child: SizedBox.shrink());
+    final dark = isDark(context);
+    final theme = dark ? lighten(0.30) : green;
+    final key = _dk(d);
+    final n = _days[key]?.length ?? 0;
+    final frac = (n / _total).clamp(0.0, 1.0).toDouble();
+    final isFull = n >= _total;
+    final today = key == _dk(DateTime.now());
+    final future = d.isAfter(DateTime.now());
+    return Expanded(
+      child: AspectRatio(
+        aspectRatio: 1,
+        child: GestureDetector(
+          onTap: () => _showDay(d),
+          child: Container(
+            margin: EdgeInsets.all(3),
+            decoration: BoxDecoration(
+              gradient: isFull ? LinearGradient(begin: Alignment.topRight, end: Alignment.bottomLeft, colors: [lighten(0.12), deepGreen2]) : null,
+              color: isFull ? null : theme.withOpacity(n == 0 ? 0.05 : 0.14 + 0.50 * frac),
+              borderRadius: BorderRadius.circular(13),
+              border: Border.all(color: today ? gold : (isFull ? gold.withOpacity(0.85) : theme.withOpacity(0.25)), width: today ? 2.2 : 1.0),
+            ),
+            child: Stack(alignment: Alignment.center, children: [
+              Text('${d.day}', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: isFull ? Colors.white : ink(context).withOpacity(future ? 0.30 : 0.9))),
+              if (isFull) Positioned(bottom: 3, child: Icon(Icons.star_rounded, size: 12, color: Color(0xFFF2DE9F))),
+            ]),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _grid() {
+    final first = _month;
+    final offset = (first.weekday + 1) % 7; // السبت أول الأسبوع
+    final dim = DateTime(first.year, first.month + 1, 0).day;
+    final cells = <DateTime?>[
+      for (int i = 0; i < offset; i++) null,
+      for (int d = 1; d <= dim; d++) DateTime(first.year, first.month, d),
+    ];
+    while (cells.length % 7 != 0) {
+      cells.add(null);
+    }
+    return Column(children: [
+      Row(children: [for (final w in _arWeek) Expanded(child: Center(child: Text(w, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: ink(context).withOpacity(0.6)))))]),
+      SizedBox(height: 4),
+      for (int r = 0; r < cells.length ~/ 7; r++) Row(children: [for (int c = 0; c < 7; c++) _cell(cells[r * 7 + c])]),
+    ]);
+  }
+
+  void _showDay(DateTime d) {
+    final list = _days[_dk(d)] ?? [];
+    final order = [challengePrayers.indexOf(-1), for (int pi = 0; pi < challengePrayers.length; pi++) if (challengePrayers[pi] >= 0) pi];
+    final dark = isDark(context);
+    final ok = dark ? Color(0xFF4FD08A) : Color(0xFF2E9B5F);
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(28))),
+      builder: (ctx) => SafeArea(
+        child: SingleChildScrollView(
+          padding: EdgeInsets.fromLTRB(20, 18, 20, 20),
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            Text('${d.day} ${_arMonths[d.month - 1]} ${d.year}', textAlign: TextAlign.center, style: TextStyle(fontFamily: 'Rsail', fontSize: 26, height: 1.5, color: accent(ctx), fontWeight: FontWeight.w700)),
+            Text('${list.length} / $_total', textAlign: TextAlign.center, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: ink(ctx).withOpacity(0.75))),
+            SizedBox(height: 12),
+            for (final pi in order)
+              Padding(
+                padding: EdgeInsets.only(bottom: 10),
+                child: Row(children: [
+                  SizedBox(width: 74, child: Text(challengePrayers[pi] == -1 ? 'السحر' : prayerNames[challengePrayers[pi]], style: TextStyle(fontSize: 15.5, fontWeight: FontWeight.w800, color: ink(ctx)))),
+                  Expanded(
+                    child: Wrap(spacing: 6, runSpacing: 6, children: [
+                      for (int i = 0; i < challengeItems.length; i++)
+                        Container(
+                          padding: EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: list.contains('$pi-$i') ? ok.withOpacity(0.14) : Colors.transparent,
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(color: list.contains('$pi-$i') ? ok : gold.withOpacity(0.45)),
+                          ),
+                          child: Row(mainAxisSize: MainAxisSize.min, children: [
+                            Icon(list.contains('$pi-$i') ? Icons.check_circle_rounded : Icons.radio_button_unchecked, size: 15, color: list.contains('$pi-$i') ? ok : ink(ctx).withOpacity(0.4)),
+                            SizedBox(width: 4),
+                            Text(_chShort[i], style: TextStyle(fontSize: 12.5, color: ink(ctx))),
+                          ]),
+                        ),
+                    ]),
+                  ),
+                ]),
+              ),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  Widget _badge(ChBadge b) {
+    final got = _best >= b.days;
+    final dark = isDark(context);
+    return Expanded(
+      child: Column(children: [
+        SizedBox(
+          width: 78,
+          height: 78,
+          child: CustomPaint(
+            painter: got
+                ? _TileMedallionPainter(Color(0xFFF7E8B5), gold, Color(0xFF8A6D1F))
+                : _TileMedallionPainter(dark ? Color(0xFF3A403D) : Color(0xFFD9DDDB), dark ? Color(0xFF2A2F2D) : Color(0xFFBFC4C2), dark ? Color(0xFF555B58) : Color(0xFF9AA09D)),
+            child: Center(
+              child: got
+                  ? Text('${b.days}', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900, color: deepGreen, height: 1.1))
+                  : Icon(Icons.lock_rounded, size: 24, color: dark ? Color(0xFF7A807D) : Color(0xFF8A908D)),
+            ),
+          ),
+        ),
+        SizedBox(height: 6),
+        Text(b.name, textAlign: TextAlign.center, style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w800, color: got ? accent(context) : ink(context).withOpacity(0.55))),
+        Text(got ? 'نلتَه بفضل الله' : 'باقي ${b.days - _best} يوم', textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: ink(context).withOpacity(0.6))),
+      ]),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final now = DateTime.now();
+    final isCurrent = _month.year == now.year && _month.month == now.month;
+    int monthFull = 0;
+    _days.forEach((k, v) {
+      if (v.length >= _total && k.startsWith('${_month.year}-${_two(_month.month)}-')) monthFull++;
+    });
+    return Scaffold(
+      appBar: AppBar(title: Text('تقويم التحدي والأوسمة')),
+      body: !_loaded
+          ? Center(child: CircularProgressIndicator())
+          : ListView(padding: EdgeInsets.all(16), children: [
+              Row(children: [
+                _stat('$_streak', 'سلسلة حالية', Icons.local_fire_department_rounded),
+                _stat('$_best', 'أطول سلسلة', Icons.military_tech_rounded),
+                _stat('$_fullDays', 'أيام كاملة', Icons.emoji_events_rounded),
+              ]),
+              SizedBox(height: 18),
+              Row(children: [
+                IconButton(onPressed: () => setState(() => _month = DateTime(_month.year, _month.month - 1, 1)), icon: Icon(Icons.chevron_right, size: 32)),
+                Expanded(child: Text('${_arMonths[_month.month - 1]} ${_month.year}', textAlign: TextAlign.center, style: TextStyle(fontFamily: 'Rsail', fontSize: 28, height: 1.5, color: accent(context), fontWeight: FontWeight.w700))),
+                IconButton(onPressed: isCurrent ? null : () => setState(() => _month = DateTime(_month.year, _month.month + 1, 1)), icon: Icon(Icons.chevron_left, size: 32)),
+              ]),
+              Text('أيام كاملة في هذا الشهر: $monthFull', textAlign: TextAlign.center, style: TextStyle(fontSize: 13.5, color: ink(context).withOpacity(0.7))),
+              SizedBox(height: 10),
+              _grid(),
+              SizedBox(height: 8),
+              Text('كل يوم يتلوّن بقدر ما أتممتِ (من ${challengePrayers.length * challengeItems.length} خانة)، والنجمة تعني يوماً كاملاً. اضغطي على أي يوم لتفاصيله.', textAlign: TextAlign.center, style: TextStyle(fontSize: 12.5, height: 1.7, color: ink(context).withOpacity(0.6))),
+              SizedBox(height: 22),
+              Text('الأوسمة', textAlign: TextAlign.center, style: TextStyle(fontFamily: 'Rsail', fontSize: 28, height: 1.5, color: accent(context), fontWeight: FontWeight.w700)),
+              SizedBox(height: 10),
+              Row(crossAxisAlignment: CrossAxisAlignment.start, children: [for (final b in challengeBadges) _badge(b)]),
+              SizedBox(height: 10),
+              Text('تُنال الأوسمة بإتمام التحدي كاملاً أياماً متتالية.', textAlign: TextAlign.center, style: TextStyle(fontSize: 12.5, color: ink(context).withOpacity(0.6))),
             ]),
     );
   }
@@ -2266,6 +3168,13 @@ class MorePage extends StatelessWidget {
             onTap: () => Navigator.push(context, SoftRoute(builder: (_) => ThemeColorsPage())),
           ),
           ListTile(
+            leading: Icon(Icons.dashboard_customize_rounded, color: green),
+            title: Text('تغيير التصميم'),
+            subtitle: Text('اختاري تصميم أقسام صفحتي الأوراد والمسبحة من عشرة تصاميم'),
+            trailing: Icon(Icons.chevron_left, color: green),
+            onTap: () => Navigator.push(context, SoftRoute(builder: (_) => TileDesignPage())),
+          ),
+          ListTile(
             leading: Icon(Icons.text_fields, color: green),
             title: Text('إعدادات الخط'),
             subtitle: Text('الحجم والنوع واللون والتباعد والتشكيل'),
@@ -2782,6 +3691,12 @@ class CounterPage extends StatefulWidget {
 }
 
 class _CounterPageState extends State<CounterPage> {
+  // حجم زر العدّ: أكبر قليلاً من قبل (حتى 290) ويتأقلم مع الشاشات الصغيرة
+  double _cs(BuildContext c) {
+    final m = MediaQuery.of(c).size;
+    return math.min(290.0, math.max(230.0, math.min(m.width - 56, m.height * 0.40)));
+  }
+
   int count = 0, target = 100;
   bool ready = false;
   bool pressed = false;
@@ -2928,7 +3843,15 @@ class _CounterPageState extends State<CounterPage> {
                   borderRadius: BorderRadius.circular(22),
                   border: Border.all(color: gold.withOpacity(0.7), width: 1.4),
                 ),
-                child: SingleChildScrollView(child: Text(widget.task.text, textAlign: TextAlign.center, style: bodyStyle(context))),
+                child: SingleChildScrollView(
+                  child: Builder(builder: (context) {
+                    // في الوضع الليلي: إن كان لون الصيغة داكناً (من الورق أو اللون المختار) نستبدله بلون فاتح واضح
+                    var st = bodyStyle(context);
+                    final col = st.color ?? ink(context);
+                    if (isDark(context) && col.computeLuminance() < 0.5) st = st.copyWith(color: ink(context));
+                    return Text(widget.task.text, textAlign: TextAlign.center, style: st);
+                  }),
+                ),
               ),
               Expanded(
                 child: Center(
@@ -2942,8 +3865,8 @@ class _CounterPageState extends State<CounterPage> {
                       scale: pressed ? 0.97 : 1.0,
                       duration: Duration(milliseconds: 80),
                       child: Container(
-                        width: 270,
-                        height: 270,
+                        width: _cs(context),
+                        height: _cs(context),
                         decoration: BoxDecoration(
                           gradient: LinearGradient(
                             begin: Alignment.topRight,
@@ -2965,9 +3888,9 @@ class _CounterPageState extends State<CounterPage> {
                           ),
                           Center(
                             child: Column(mainAxisSize: MainAxisSize.min, children: [
-                              Text('$count', style: TextStyle(color: Colors.white, fontSize: 72, fontWeight: FontWeight.bold, height: 1.1)),
+                              Text('$count', style: TextStyle(color: Colors.white, fontSize: 80, fontWeight: FontWeight.bold, height: 1.1)),
                               SizedBox(height: 4),
-                              Text(done ? 'اكتمل' : 'من $target', style: TextStyle(color: Color(0xFFE6D19A), fontSize: 19)),
+                              Text(done ? 'اكتمل' : 'من $target', style: TextStyle(color: Color(0xFFE6D19A), fontSize: 21)),
                             ]),
                           ),
                           Positioned(
@@ -3633,7 +4556,8 @@ class PaletteColor {
   final String name;
   final Color color; // اللون الأساسي للتطبيق كله
   final Color? color2; // لون ثانٍ يتداخل مع الأول في التدرّجات (الهيدر والبطاقات) — للألوان المتداخلة
-  const PaletteColor(this.name, this.color, [this.color2]);
+  final Color? color3; // لون ثالث للألوان الثلاثية
+  const PaletteColor(this.name, this.color, [this.color2, this.color3]);
 }
 
 // عدد الألوان المفردة؛ ما بعدها ألوان متداخلة (تُضاف في آخر القائمة كي لا يتغيّر ترتيب اللون المحفوظ)
@@ -3671,7 +4595,20 @@ const List<PaletteColor> palettes = [
   PaletteColor('فحمي وفيروزي', Color(0xFF3F4B52), Color(0xFF0F7C86)),
   PaletteColor('ليل وسماوي', Color(0xFF1A2A6C), Color(0xFF1E88C7)),
   PaletteColor('أخضر وزيتوني', Color(0xFF176B50), Color(0xFF5B7B2A)),
+  // ===== ألوان ثلاثية (ثلاثة ألوان تمتزج معاً) =====
+  PaletteColor('زمرد وذهب وفيروزي', Color(0xFF176B50), Color(0xFFB8860B), Color(0xFF0F7C86)),
+  PaletteColor('غروب ملكي', Color(0xFF1F3A8A), Color(0xFF7B2D8E), Color(0xFFD2691E)),
+  PaletteColor('فجر الصحراء', Color(0xFF1A2A6C), Color(0xFFC2417A), Color(0xFFD2A24C)),
+  PaletteColor('واحة', Color(0xFF0F6B4F), Color(0xFF1E88C7), Color(0xFF5B7B2A)),
+  PaletteColor('عنابي وبنفسجي وذهبي', Color(0xFF7B1E3A), Color(0xFF4A2A7A), Color(0xFFB8860B)),
+  PaletteColor('سماء وبحر وزمرد', Color(0xFF1E88C7), Color(0xFF0F7C86), Color(0xFF176B50)),
+  PaletteColor('وردة الليل', Color(0xFF3F3D9E), Color(0xFF9C2F7F), Color(0xFFC2417A)),
+  PaletteColor('نخيل وتمر', Color(0xFF5B7B2A), Color(0xFF6B4423), Color(0xFFB8860B)),
+  PaletteColor('لؤلؤ وبحر', Color(0xFF0F7C86), Color(0xFF1F4E9C), Color(0xFF6A3FA0)),
 ];
+
+// بداية الألوان الثلاثية في القائمة
+final int triplePaletteStart = palettes.indexWhere((p) => p.color3 != null);
 
 final ValueNotifier<int> paletteIdx = ValueNotifier<int>(0);
 
@@ -3691,6 +4628,22 @@ Color get deepGreen2 {
 }
 
 Color get deepDark2 => Color.alphaBlend(Colors.black.withOpacity(0.45), deepGreen2);
+
+// اللون الثالث (للألوان الثلاثية فقط؛ وإلا يساوي الثاني فلا يتغيّر شيء)
+bool get hasThree => palettes[paletteIdx.value.clamp(0, palettes.length - 1).toInt()].color3 != null;
+Color get green3 => palettes[paletteIdx.value.clamp(0, palettes.length - 1).toInt()].color3 ?? green2;
+Color get deepGreen3 {
+  final h = HSLColor.fromColor(green3);
+  return h.withLightness((h.lightness * 0.62).clamp(0.04, 1.0).toDouble()).toColor();
+}
+
+Color get deepDark3 => Color.alphaBlend(Colors.black.withOpacity(0.45), deepGreen3);
+
+// ألوان تدرّج الهيدر واللوحات الكبيرة: لونان أو ثلاثة حسب القالب المختار
+List<Color> heroColors(bool dark) {
+  if (hasThree) return dark ? [deepDark, deepDark2, deepDark3] : [deepGreen, green2, green3];
+  return dark ? [deepDark, deepGreen2] : [deepGreen, green2];
+}
 Color get inkLight => Color.alphaBlend(Colors.black.withOpacity(0.72), green);
 Color tint(double a) => Color.alphaBlend(green.withOpacity(a), Colors.white);
 Color darkTint(double a) => Color.alphaBlend(green.withOpacity(a), Color(0xFF0C0F0E));
@@ -3724,7 +4677,7 @@ class ThemeColorsPage extends StatelessWidget {
       child: Container(
         decoration: BoxDecoration(
           color: pc.color,
-          gradient: pc.color2 == null ? null : LinearGradient(begin: Alignment.topRight, end: Alignment.bottomLeft, colors: [pc.color, Color.lerp(pc.color, pc.color2, 0.5)!, pc.color2!]),
+          gradient: pc.color2 == null ? null : LinearGradient(begin: Alignment.topRight, end: Alignment.bottomLeft, colors: pc.color3 == null ? [pc.color, Color.lerp(pc.color, pc.color2, 0.5)!, pc.color2!] : [pc.color, pc.color2!, pc.color3!]),
           borderRadius: BorderRadius.circular(20),
           border: Border.all(color: on ? gold : Color(0x33FFFFFF), width: on ? 3.5 : 1),
           boxShadow: on ? [BoxShadow(color: gold.withOpacity(0.45), blurRadius: 10)] : null,
@@ -3769,7 +4722,9 @@ class ThemeColorsPage extends StatelessWidget {
             SizedBox(height: 14),
             _grid(0, singlePaletteCount, sel),
             _sectionTitle(context, 'ألوان متداخلة'),
-            _grid(singlePaletteCount, palettes.length, sel),
+            _grid(singlePaletteCount, triplePaletteStart, sel),
+            _sectionTitle(context, 'ألوان ثلاثية'),
+            _grid(triplePaletteStart, palettes.length, sel),
           ]),
         ),
       );
@@ -3815,9 +4770,59 @@ const String hizbAlBahrText = r'''حزب البحر
 وصلى الله على سيدنا محمد وآله وصحبه وسلم.''';
 
 
-// ===================== بطاقة الدعاء للشيخ =====================
-class ThanksCard extends StatelessWidget {
+// ===================== بطاقة الدعاء للشيخ (شريط متحرك في سطر واحد) =====================
+class _SlideGrad extends GradientTransform {
+  final double dx;
+  const _SlideGrad(this.dx);
+  @override
+  Matrix4? transform(Rect bounds, {TextDirection? textDirection}) => Matrix4.translationValues(bounds.width * dx, 0, 0);
+}
+
+class _TwinklePainter extends CustomPainter {
+  final double t;
+  final Color color;
+  _TwinklePainter(this.t, this.color);
+  static final List<List<double>> _pts = () {
+    final r = math.Random(11);
+    return List.generate(16, (_) => [r.nextDouble(), r.nextDouble(), r.nextDouble(), 1 + r.nextInt(2).toDouble()]);
+  }();
+  @override
+  void paint(Canvas c, Size s) {
+    for (final p in _pts) {
+      final a = 0.5 + 0.5 * math.sin(2 * math.pi * (t * p[3] + p[2]));
+      final o = Offset(p[0] * s.width, p[1] * s.height);
+      final r = 1.2 + 1.8 * a;
+      c.drawCircle(o, r, Paint()..color = color.withOpacity(0.15 + 0.5 * a));
+      final l = Paint()
+        ..color = color.withOpacity(0.10 + 0.45 * a)
+        ..strokeWidth = 0.9;
+      c.drawLine(o.translate(-r * 2, 0), o.translate(r * 2, 0), l);
+      c.drawLine(o.translate(0, -r * 2), o.translate(0, r * 2), l);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _TwinklePainter old) => old.t != t || old.color != color;
+}
+
+class ThanksCard extends StatefulWidget {
   const ThanksCard({super.key});
+  @override
+  State<ThanksCard> createState() => _ThanksCardState();
+}
+
+class _ThanksCardState extends State<ThanksCard> with TickerProviderStateMixin {
+  late final AnimationController _move = AnimationController(vsync: this, duration: Duration(seconds: 12));
+  late final AnimationController _fx = AnimationController(vsync: this, duration: Duration(seconds: 4))..repeat();
+  double _segW = 0;
+  static const double _speed = 55; // بكسل في الثانية
+
+  @override
+  void dispose() {
+    _move.dispose();
+    _fx.dispose();
+    super.dispose();
+  }
 
   Widget _ornament(Color c) => Row(children: [
         Expanded(child: Container(height: 1.2, color: c.withOpacity(0.55))),
@@ -3834,35 +4839,113 @@ class ThanksCard extends StatelessWidget {
         Expanded(child: Container(height: 1.2, color: c.withOpacity(0.55))),
       ]);
 
+  double _tw(String t, TextStyle st) {
+    final tp = TextPainter(text: TextSpan(text: t, style: st), textDirection: TextDirection.rtl, maxLines: 1)..layout();
+    final w = tp.width;
+    tp.dispose();
+    return w;
+  }
+
   @override
   Widget build(BuildContext context) {
     final dark = isDark(context);
-    final plain = TextStyle(fontFamily: 'Rsail', fontSize: 23, height: 1.9, fontWeight: FontWeight.w400, color: ink(context).withOpacity(0.9));
-    final name = TextStyle(
-      fontFamily: 'Rsail',
-      fontSize: 31,
-      height: 1.7,
-      fontWeight: FontWeight.w700,
-      color: dark ? Color(0xFFE6D19A) : deepGreen,
-      shadows: [Shadow(color: gold.withOpacity(0.45), blurRadius: 6, offset: Offset(0, 1.5))],
-    );
+    const goldLight = Color(0xFFF2DE9F);
+    final base = dark ? Color(0xFFE6D19A) : deepGreen;
+    final hi = dark ? Colors.white : gold;
+    final plain = TextStyle(fontFamily: 'Rsail', fontSize: 23, height: 1.5, fontWeight: FontWeight.w400, color: ink(context).withOpacity(0.92));
+    final nameSt = TextStyle(fontFamily: 'Rsail', fontSize: 29, height: 1.5, fontWeight: FontWeight.w700, color: Colors.white);
+    const t1 = 'جزى الله شيخنا';
+    const t2 = 'السيد: عبدالعليم جودة البكري';
+    const t3 = 'خير الجزاء';
+    // عرض المقطع الواحد = النصوص + الفواصل (8+8+8+8) + قلب/نجمة بين التكرارات
+    const gap = 16.0;
+    final segW = _tw(t1, plain) + _tw(t2, nameSt) + _tw(t3, plain) + gap * 3 + 26 + 40 + 12;
+    if ((segW - _segW).abs() > 0.5) {
+      _segW = segW;
+      _move.duration = Duration(milliseconds: (segW / _speed * 1000).round());
+      _move.repeat();
+    }
+    final sparkleColors = [Color(0xFFFF8FA3), goldLight, Color(0xFF9BE3B5), Color(0xFFFFD27A)];
+
+    Widget sep(int i) => Icon(i.isEven ? Icons.favorite_rounded : Icons.auto_awesome, size: 20, color: sparkleColors[i % sparkleColors.length]);
+
+    Widget segment() => AnimatedBuilder(
+          animation: _fx,
+          builder: (_, __) {
+            final bob = math.sin(_fx.value * 2 * math.pi) * 2.0;
+            final dx = -1.0 + 2.0 * _fx.value;
+            return SizedBox(
+              width: segW,
+              child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                Transform.translate(offset: Offset(0, bob), child: Text(t1, maxLines: 1, softWrap: false, style: plain)),
+                SizedBox(width: gap),
+                ShaderMask(
+                  blendMode: BlendMode.srcIn,
+                  shaderCallback: (r) => LinearGradient(colors: [base, hi, base], stops: [0.0, 0.5, 1.0], transform: _SlideGrad(dx)).createShader(r),
+                  child: Transform.translate(offset: Offset(0, -bob), child: Text(t2, maxLines: 1, softWrap: false, style: nameSt)),
+                ),
+                SizedBox(width: gap),
+                Transform.translate(offset: Offset(0, bob), child: Text(t3, maxLines: 1, softWrap: false, style: plain)),
+                SizedBox(width: gap),
+                Transform.scale(scale: 1.0 + 0.18 * math.sin(_fx.value * 4 * math.pi).abs(), child: sep(0)),
+                SizedBox(width: 6),
+                sep(1),
+                SizedBox(width: 6),
+                sep(2),
+              ]),
+            );
+          },
+        );
+
     return Container(
       width: double.infinity,
-      padding: EdgeInsets.fromLTRB(18, 14, 18, 14),
+      padding: EdgeInsets.fromLTRB(0, 10, 0, 10),
       decoration: BoxDecoration(
-        color: dark ? darkTint(0.10) : Color.alphaBlend(gold.withOpacity(0.10), Colors.white),
+        gradient: LinearGradient(
+          begin: Alignment.topRight,
+          end: Alignment.bottomLeft,
+          colors: dark ? [darkTint(0.14), darkTint(0.06)] : [Color.alphaBlend(gold.withOpacity(0.16), Colors.white), Color.alphaBlend(green.withOpacity(0.08), Colors.white)],
+        ),
         borderRadius: BorderRadius.circular(22),
         border: Border.all(color: gold.withOpacity(0.8), width: 1.4),
+        boxShadow: [BoxShadow(color: gold.withOpacity(0.22), blurRadius: 14, offset: Offset(0, 5))],
       ),
-      child: Column(children: [
-        _ornament(gold),
-        SizedBox(height: 8),
-        Text('جزى الله شيخنا', textAlign: TextAlign.center, style: plain),
-        Text('السيد: عبدالعليم جودة البكري', textAlign: TextAlign.center, style: name),
-        Text('خير الجزاء', textAlign: TextAlign.center, style: plain),
-        SizedBox(height: 8),
-        _ornament(gold),
-      ]),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(20),
+        child: Stack(children: [
+          Positioned.fill(
+            child: IgnorePointer(
+              child: AnimatedBuilder(animation: _fx, builder: (_, __) => CustomPaint(painter: _TwinklePainter(_fx.value, gold))),
+            ),
+          ),
+          Column(mainAxisSize: MainAxisSize.min, children: [
+            Padding(padding: EdgeInsets.symmetric(horizontal: 18), child: _ornament(gold)),
+            SizedBox(height: 4),
+            SizedBox(
+              height: 52,
+              child: LayoutBuilder(builder: (context, box) {
+                final n = (box.maxWidth / segW).ceil() + 2;
+                return AnimatedBuilder(
+                  animation: _move,
+                  builder: (_, __) => Stack(clipBehavior: Clip.hardEdge, children: [
+                    // تتحرك لليمين، وما يخرج من اليمين يدخل من اليسار
+                    for (int k = 0; k < n; k++)
+                      Positioned(
+                        left: (k - 1) * segW + _move.value * segW,
+                        top: 0,
+                        bottom: 0,
+                        width: segW,
+                        child: Directionality(textDirection: TextDirection.rtl, child: Center(child: segment())),
+                      ),
+                  ]),
+                );
+              }),
+            ),
+            SizedBox(height: 4),
+            Padding(padding: EdgeInsets.symmetric(horizontal: 18), child: _ornament(gold)),
+          ]),
+        ]),
+      ),
     );
   }
 }
