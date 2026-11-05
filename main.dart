@@ -3,7 +3,8 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:just_audio/just_audio.dart' show AudioPlayer, PlayerState, ProcessingState;
+import 'package:just_audio/just_audio.dart' show AudioPlayer, AudioSource, LoopMode, PlayerState, ProcessingState;
+import 'package:just_audio_background/just_audio_background.dart';
 import 'package:pdfx/pdfx.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -177,6 +178,14 @@ Future<void> toggleFavorite(IndexEntry e) async {
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // التشغيل في الخلفية وعند قفل الشاشة (إشعار التحكم)
+  try {
+    await JustAudioBackground.init(
+      androidNotificationChannelId: 'com.khalwatiya.bakriya.audio',
+      androidNotificationChannelName: 'ورد السحر الصوتي',
+      androidNotificationOngoing: true,
+    );
+  } catch (_) {}
   await loadFavorites();
   runApp(KhalwatiApp());
 }
@@ -1309,6 +1318,16 @@ class SaharAudio {
   static final ValueNotifier<bool> onShell = ValueNotifier<bool>(true);
   static final ValueNotifier<String?> error = ValueNotifier<String?>(null);
   static final ValueNotifier<double> speed = ValueNotifier<double>(1.0);
+  // التكرار: 0 بدون، 1 الملف كله، 2 القسم الحالي
+  static final ValueNotifier<int> repeat = ValueNotifier<int>(0);
+  // أقسام الملف: بداية كل قسم بالمللي ثانية (null = لم تُحدَّد بعد)
+  static const List<String> sectionTitles = ['ورد السحر', 'القصيدة الميمية', 'القصيدة المنبهجة'];
+  static final ValueNotifier<List<int?>> sectionStarts = ValueNotifier<List<int?>>([0, null, null]);
+  // مؤقت النوم
+  static final ValueNotifier<int> sleepMinutes = ValueNotifier<int>(0);
+  static final ValueNotifier<Duration?> sleepLeft = ValueNotifier<Duration?>(null);
+  static Timer? _sleepT;
+  static DateTime? _sleepEnd;
   static Future<void>? _initF;
   static bool _ready = false;
   static int _lastSaveMs = 0;
@@ -1320,8 +1339,18 @@ class SaharAudio {
       final p = await SharedPreferences.getInstance();
       final pos = p.getInt('sahar_audio_pos') ?? 0;
       speed.value = p.getDouble('sahar_audio_speed') ?? 1.0;
-      await player.setAsset(asset, initialPosition: Duration(milliseconds: pos));
+      repeat.value = p.getInt('sahar_audio_repeat') ?? 0;
+      final saved = p.getStringList('sahar_audio_sections');
+      if (saved != null && saved.length == sectionTitles.length) {
+        sectionStarts.value = [for (final e in saved) int.tryParse(e)];
+      }
+      final src = AudioSource.asset(
+        asset,
+        tag: MediaItem(id: 'sahar_wird', title: 'ورد السحر', artist: 'الشيخ عبدالرحمن مصطفى الأزهري', album: 'الطريقة الخلوتية البكرية'),
+      );
+      await player.setAudioSource(src, initialPosition: Duration(milliseconds: pos));
       await player.setSpeed(speed.value);
+      await player.setLoopMode(repeat.value == 1 ? LoopMode.one : LoopMode.off);
       player.positionStream.listen(_onPos);
       player.playerStateStream.listen(_onState);
       _ready = true;
@@ -1341,6 +1370,18 @@ class SaharAudio {
 
   static void _onPos(Duration d) {
     if (!player.playing) return;
+    if (repeat.value == 2) {
+      final ms = d.inMilliseconds;
+      final i = sectionAt(ms);
+      if (i >= 0) {
+        final start = sectionStarts.value[i]!;
+        final end = sectionEnd(i);
+        if (end > start + 3000 && ms >= end - 250) {
+          player.seek(Duration(milliseconds: start));
+          return;
+        }
+      }
+    }
     final now = DateTime.now().millisecondsSinceEpoch;
     if (now - _lastSaveMs < 2000) return;
     _lastSaveMs = now;
@@ -1350,6 +1391,15 @@ class SaharAudio {
   static void _onState(PlayerState st) {
     if (st.processingState == ProcessingState.completed) {
       if (st.playing) {
+        if (repeat.value == 2) {
+          final total = (player.duration ?? Duration.zero).inMilliseconds;
+          final i = sectionAt(total - 1000);
+          if (i >= 0) {
+            player.seek(Duration(milliseconds: sectionStarts.value[i]!));
+            player.play();
+            return;
+          }
+        }
         player.pause();
         player.seek(Duration.zero);
         _savePos(0);
@@ -1357,6 +1407,95 @@ class SaharAudio {
       return;
     }
     if (!st.playing) _savePos(player.position.inMilliseconds);
+  }
+
+  // ----- الأقسام -----
+  static int sectionAt(int ms) {
+    int best = -1;
+    int bestStart = -1;
+    final st = sectionStarts.value;
+    for (int i = 0; i < st.length; i++) {
+      final v = st[i];
+      if (v != null && v <= ms && v > bestStart) {
+        best = i;
+        bestStart = v;
+      }
+    }
+    return best;
+  }
+
+  static int sectionEnd(int i) {
+    final st = sectionStarts.value;
+    final start = st[i] ?? 0;
+    int end = (player.duration ?? Duration.zero).inMilliseconds;
+    for (final v in st) {
+      if (v != null && v > start && v < end) end = v;
+    }
+    return end;
+  }
+
+  static Future<void> _saveSections() async {
+    try {
+      final p = await SharedPreferences.getInstance();
+      await p.setStringList('sahar_audio_sections', [for (final v in sectionStarts.value) v == null ? '' : v.toString()]);
+    } catch (_) {}
+  }
+
+  static Future<void> setSectionStart(int i, int ms) async {
+    final l = List<int?>.from(sectionStarts.value);
+    l[i] = ms;
+    sectionStarts.value = l;
+    await _saveSections();
+  }
+
+  static Future<void> jumpToSection(int i) async {
+    final v = sectionStarts.value[i];
+    if (v == null) return;
+    await init();
+    if (!_ready) return;
+    await player.seek(Duration(milliseconds: v));
+    _savePos(v);
+  }
+
+  // ----- التكرار -----
+  static Future<void> setRepeat(int m) async {
+    repeat.value = m;
+    try {
+      final p = await SharedPreferences.getInstance();
+      await p.setInt('sahar_audio_repeat', m);
+    } catch (_) {}
+    await init();
+    if (_ready) await player.setLoopMode(m == 1 ? LoopMode.one : LoopMode.off);
+  }
+
+  // ----- مؤقت النوم (مع خفض تدريجي للصوت في آخر 10 ثوانٍ) -----
+  static void setSleep(int minutes) {
+    _sleepT?.cancel();
+    _sleepT = null;
+    sleepMinutes.value = minutes;
+    player.setVolume(1.0);
+    if (minutes <= 0) {
+      _sleepEnd = null;
+      sleepLeft.value = null;
+      return;
+    }
+    _sleepEnd = DateTime.now().add(Duration(minutes: minutes));
+    sleepLeft.value = Duration(minutes: minutes);
+    _sleepT = Timer.periodic(Duration(seconds: 1), (t) {
+      final left = _sleepEnd!.difference(DateTime.now());
+      if (left <= Duration.zero) {
+        t.cancel();
+        _sleepT = null;
+        _sleepEnd = null;
+        sleepMinutes.value = 0;
+        sleepLeft.value = null;
+        player.pause();
+        player.setVolume(1.0);
+        return;
+      }
+      sleepLeft.value = left;
+      if (left.inSeconds < 10) player.setVolume((left.inMilliseconds / 10000).clamp(0.0, 1.0).toDouble());
+    });
   }
 
   static Future<void> toggle() async {
@@ -1392,6 +1531,7 @@ class SaharAudio {
   }
 
   static Future<void> close() async {
+    setSleep(0);
     if (_ready) {
       await player.pause();
       await _savePos(player.position.inMilliseconds);
@@ -1851,6 +1991,110 @@ class _SaharAudioPageState extends State<SaharAudioPage> {
         ]),
       );
 
+  Widget _panelTitle(BuildContext context, IconData icon, String text) => Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+        Icon(icon, color: gold, size: 22),
+        SizedBox(width: 6),
+        Text(text, style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: ink(context))),
+      ]);
+
+  Widget _chip(BuildContext context, String label, bool sel, VoidCallback onTap) => ChoiceChip(
+        label: Text(label),
+        selected: sel,
+        selectedColor: gold,
+        labelStyle: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: sel ? Colors.black : ink(context)),
+        onSelected: (_) {
+          HapticFeedback.selectionClick();
+          onTap();
+        },
+      );
+
+  // أقسام الملف: ضغطة = انتقال، ضغطة مطولة = تحديد بداية القسم من الموضع الحالي
+  Widget _sectionsPanel(BuildContext context) => ValueListenableBuilder<List<int?>>(
+        valueListenable: SaharAudio.sectionStarts,
+        builder: (context, starts, _) => StreamBuilder<Duration>(
+          stream: SaharAudio.player.positionStream,
+          builder: (context, ps) {
+            final cur = SaharAudio.sectionAt((ps.data ?? Duration.zero).inMilliseconds);
+            return Column(children: [
+              _panelTitle(context, Icons.bookmarks_rounded, 'أقسام الملف'),
+              SizedBox(height: 12),
+              Wrap(alignment: WrapAlignment.center, spacing: 8, runSpacing: 8, children: [
+                for (int i = 0; i < SaharAudio.sectionTitles.length; i++)
+                  GestureDetector(
+                    onTap: () {
+                      if (starts[i] == null) {
+                        ScaffoldMessenger.of(context).clearSnackBars();
+                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('لم تُحدَّد بداية «${SaharAudio.sectionTitles[i]}» بعد. شغّلي الملف حتى يبدأ هذا القسم ثم اضغطي مطولاً على اسمه.')));
+                        return;
+                      }
+                      HapticFeedback.selectionClick();
+                      SaharAudio.jumpToSection(i);
+                    },
+                    onLongPress: () async {
+                      await SaharAudio.init();
+                      final ms = SaharAudio.player.position.inMilliseconds;
+                      await SaharAudio.setSectionStart(i, ms);
+                      HapticFeedback.mediumImpact();
+                      if (!context.mounted) return;
+                      ScaffoldMessenger.of(context).clearSnackBars();
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('تم تحديد بداية «${SaharAudio.sectionTitles[i]}» عند ${_fmtDur(Duration(milliseconds: ms))}')));
+                    },
+                    child: Container(
+                      padding: EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: cur == i ? gold : Colors.transparent,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: gold.withOpacity(starts[i] == null ? 0.4 : 0.9), width: 1.4),
+                      ),
+                      child: Column(mainAxisSize: MainAxisSize.min, children: [
+                        Text(SaharAudio.sectionTitles[i], style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: cur == i ? Colors.black : ink(context))),
+                        SizedBox(height: 2),
+                        Text(starts[i] == null ? 'غير محدد' : _fmtDur(Duration(milliseconds: starts[i]!)), textDirection: TextDirection.ltr, style: TextStyle(fontSize: 12, color: (cur == i ? Colors.black : ink(context)).withOpacity(0.65))),
+                      ]),
+                    ),
+                  ),
+              ]),
+              SizedBox(height: 8),
+              Text('اضغطي مطولاً على اسم القسم لتحديد بدايته من الموضع الحالي', textAlign: TextAlign.center, style: TextStyle(fontSize: 13, color: ink(context).withOpacity(0.5))),
+            ]);
+          },
+        ),
+      );
+
+  Widget _repeatPanel(BuildContext context) => ValueListenableBuilder<int>(
+        valueListenable: SaharAudio.repeat,
+        builder: (context, m, _) => Column(children: [
+          _panelTitle(context, Icons.repeat_rounded, 'التكرار'),
+          SizedBox(height: 12),
+          Wrap(alignment: WrapAlignment.center, spacing: 8, runSpacing: 8, children: [
+            _chip(context, 'بدون تكرار', m == 0, () => SaharAudio.setRepeat(0)),
+            _chip(context, 'تكرار الملف', m == 1, () => SaharAudio.setRepeat(1)),
+            _chip(context, 'تكرار القسم الحالي', m == 2, () => SaharAudio.setRepeat(2)),
+          ]),
+        ]),
+      );
+
+  Widget _sleepPanel(BuildContext context) => ValueListenableBuilder<int>(
+        valueListenable: SaharAudio.sleepMinutes,
+        builder: (context, mins, _) => Column(children: [
+          _panelTitle(context, Icons.bedtime_rounded, 'مؤقت النوم'),
+          SizedBox(height: 12),
+          Wrap(alignment: WrapAlignment.center, spacing: 8, runSpacing: 8, children: [
+            _chip(context, 'إيقاف', mins == 0, () => SaharAudio.setSleep(0)),
+            for (final v in [10, 15, 30, 45, 60]) _chip(context, '$v دقيقة', mins == v, () => SaharAudio.setSleep(v)),
+          ]),
+          ValueListenableBuilder<Duration?>(
+            valueListenable: SaharAudio.sleepLeft,
+            builder: (context, left, _) => left == null
+                ? const SizedBox.shrink()
+                : Padding(
+                    padding: EdgeInsets.only(top: 10),
+                    child: Text('سيتوقف الصوت بعد ${_fmtDur(left)}', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: accent(context))),
+                  ),
+          ),
+        ]),
+      );
+
   @override
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(title: Text('ورد السحر صوتياً')),
@@ -1896,6 +2140,12 @@ class _SaharAudioPageState extends State<SaharAudioPage> {
             _controls(context),
             SizedBox(height: 30),
             _speedPanel(context),
+            SizedBox(height: 26),
+            _sectionsPanel(context),
+            SizedBox(height: 26),
+            _repeatPanel(context),
+            SizedBox(height: 26),
+            _sleepPanel(context),
             SizedBox(height: 22),
             Text('يُحفظ مكان التوقف تلقائياً وتكملين منه المرة القادمة', textAlign: TextAlign.center, style: TextStyle(fontSize: 14, color: ink(context).withOpacity(0.55))),
           ],
