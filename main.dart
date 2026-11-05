@@ -3677,20 +3677,21 @@ class _TextReaderPageState extends State<TextReaderPage> {
 
     if (widget.poem) {
       // في ورد السحر: أي عدد بين قوسين في بيت يظهر له صندوق عدّ، ويُحذف رقم العدد من نص البيت
+      // القصائد: بلا صناديق عدّ، ويظهر العدد (مثل 3) في دائرة صغيرة بجانب البيت
       final pLines = <String>[];
-      final pBoxes = <int, int>{};
+      final pMarks = <int, int>{};
       for (int k = 0; k < body.length; k++) {
         var line = body[k];
         if (widget.allCounts) {
           final c = takeCountParen(line);
           if (c != null) {
-            pBoxes[k ~/ 2] = c.target;
+            pMarks[k ~/ 2] = c.target;
             line = c.rest;
           }
         }
         pLines.add(line);
       }
-      _boxTargets = pBoxes;
+      _boxTargets = <int, int>{};
       return Scaffold(
         appBar: appBar,
         body: Column(children: [ReadingTimerBar(title: widget.title), Expanded(child: _withAutoBar(Container(
@@ -3706,7 +3707,7 @@ class _TextReaderPageState extends State<TextReaderPage> {
                   children: [
                     PageTitle(text: heading),
                     SizedBox(height: 14),
-                    PoemView(lines: pLines, cfg: cfg, marked: hasMark ? bm : -1, onMark: _toggle, keyFor: _key, boxes: pBoxes, counts: tcounts, onCountTap: _tapCount, onCountReset: _resetCount),
+                    PoemView(lines: pLines, cfg: cfg, marked: hasMark ? bm : -1, onMark: _toggle, keyFor: _key, marks: pMarks),
                     _finishButton(),
                   ],
                 ),
@@ -5215,7 +5216,8 @@ class PoemView extends StatelessWidget {
   final Map<int, int> boxes, counts; // رقم البيت -> العدد المطلوب / العدّ الحالي
   final void Function(int, int)? onCountTap;
   final void Function(int)? onCountReset;
-  const PoemView({super.key, required this.lines, required this.cfg, required this.marked, required this.onMark, required this.keyFor, this.boxes = const {}, this.counts = const {}, this.onCountTap, this.onCountReset});
+  final Map<int, int> marks; // رقم البيت -> عدد يظهر بجانبه (بدون صندوق)
+  const PoemView({super.key, required this.lines, required this.cfg, required this.marked, required this.onMark, required this.keyFor, this.boxes = const {}, this.counts = const {}, this.onCountTap, this.onCountReset, this.marks = const {}});
 
   static const String indent = '\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0'; // 8 مسافات
 
@@ -5231,7 +5233,8 @@ class PoemView extends StatelessWidget {
       bayts.add([lines[i], i + 1 < lines.length ? lines[i + 1] : '']);
     }
     return LayoutBuilder(builder: (context, box) {
-      final avail = box.maxWidth - 2;
+      final gutter = marks.isEmpty ? 0.0 : 34.0; // مكان دائرة العدد بجانب البيت
+      final avail = box.maxWidth - 2 - gutter;
       final base = bodyStyle(context);
       final cands = <String>[];
       for (final b in bayts) {
@@ -5296,6 +5299,26 @@ class PoemView extends StatelessWidget {
                       child: FittedBox(fit: BoxFit.scaleDown, alignment: AlignmentDirectional.centerStart, child: SizedBox(width: avail, child: inner)),
                     );
               final isLast = e.key == bayts.length - 1;
+              final mark = marks[e.key];
+              final Widget shown = marks.isEmpty
+                  ? content
+                  : Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+                      Expanded(child: content),
+                      SizedBox(
+                        width: gutter,
+                        child: mark == null
+                            ? null
+                            : Center(
+                                child: Container(
+                                  width: 26,
+                                  height: 26,
+                                  alignment: Alignment.center,
+                                  decoration: BoxDecoration(shape: BoxShape.circle, color: gold.withOpacity(0.14), border: Border.all(color: gold.withOpacity(0.85), width: 1.3)),
+                                  child: Text('$mark', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: accent(context))),
+                                ),
+                              ),
+                      ),
+                    ]);
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
@@ -5304,7 +5327,7 @@ class PoemView extends StatelessWidget {
                     marked: marked == e.key,
                     onLongPress: () => onMark(e.key),
                     iconSize: 14,
-                    child: Padding(padding: EdgeInsets.only(bottom: isLast ? 10 : 4), child: content),
+                    child: Padding(padding: EdgeInsets.only(bottom: isLast ? 10 : 4), child: shown),
                   ),
                   if (!isLast) const PoemDivider(),
                 ],
@@ -5783,7 +5806,8 @@ class ThemeColorsPage extends StatelessWidget {
 
 
 // نص حزب البحر (مضمّن داخل التطبيق)
-const String duaKhatmText = r'''اللَّهُمَّ صَلِّ وَسَلِّمْ عَلَى سَيِّدِنَا مُحَمَّدٍ فِي الأَوَّلِينَ وَصَلِّ وَسَلِّمْ عَلَى سَيِّدِنَا مُحَمَّدٍ فِي الآخِرِينَ وَصَلِّ وَسَلِّمْ عَلَى سَيِّدِنَا مُحَمَّدٍ فِي كُلِّ وَقْتٍ وَحِينٍ وَصَلِّ وَسَلِّمْ عَلَى سَيِّدِنَا مُحَمَّدٍ فِي المَلَإِ الأَعْلَى إِلَى يَوْمِ الدِّينِ وَصَلِّ وَسَلِّمْ عَلَى جَمِيعِ الأَنْبِيَاءِ وَالمُرْسَلِينَ وَعَلَى المَلَائِكَةِ المُقَرَّبِينَ وَعَلَى عِبَادِ اللهِ الصَّالِحِينَ مِنْ أَهْلِ السَّمَاوَاتِ وَأَهْلِ الأَرَضِينَ وَرَضِيَ اللهُ تَبَارَكَ وَتَعَالَى عَنْ سَادَاتِنَا ذَوِي القَدْرِ الجَلِيِّ أَبِي بَكْرٍ وَعُمَرَ وَعُثْمَانَ وَعَلِيٍّ وَعَنْ سَائِرِ أَصْحَابِ رَسُولِ اللهِ ﷺ أَجْمَعِينَ وَالتَّابِعِينَ لَهُمْ بِإِحْسَانٍ إِلَى يَوْمِ الدِّينِ وَاحْشُرْنَا وَارْحَمْنَا مَعَهُمْ بِرَحْمَتِكَ يَا أَرْحَمَ الرَّاحِمِينَ يَا اللهُ يَا حَيُّ يَا قَيُّومُ لَا إِلَهَ إِلَّا أَنْتَ يَا اللهُ يَا رَبَّنَا يَا وَاسِعَ المَغْفِرَةِ يَا أَرْحَمَ الرَّاحِمِينَ اللَّهُمَّ آمِينَ.''';
+const String duaKhatmText = r'''دعاء الختام
+اللَّهُمَّ صَلِّ وَسَلِّمْ عَلَى سَيِّدِنَا مُحَمَّدٍ فِي الأَوَّلِينَ وَصَلِّ وَسَلِّمْ عَلَى سَيِّدِنَا مُحَمَّدٍ فِي الآخِرِينَ وَصَلِّ وَسَلِّمْ عَلَى سَيِّدِنَا مُحَمَّدٍ فِي كُلِّ وَقْتٍ وَحِينٍ وَصَلِّ وَسَلِّمْ عَلَى سَيِّدِنَا مُحَمَّدٍ فِي المَلَإِ الأَعْلَى إِلَى يَوْمِ الدِّينِ وَصَلِّ وَسَلِّمْ عَلَى جَمِيعِ الأَنْبِيَاءِ وَالمُرْسَلِينَ وَعَلَى المَلَائِكَةِ المُقَرَّبِينَ وَعَلَى عِبَادِ اللهِ الصَّالِحِينَ مِنْ أَهْلِ السَّمَاوَاتِ وَأَهْلِ الأَرَضِينَ وَرَضِيَ اللهُ تَبَارَكَ وَتَعَالَى عَنْ سَادَاتِنَا ذَوِي القَدْرِ الجَلِيِّ أَبِي بَكْرٍ وَعُمَرَ وَعُثْمَانَ وَعَلِيٍّ وَعَنْ سَائِرِ أَصْحَابِ رَسُولِ اللهِ ﷺ أَجْمَعِينَ وَالتَّابِعِينَ لَهُمْ بِإِحْسَانٍ إِلَى يَوْمِ الدِّينِ وَاحْشُرْنَا وَارْحَمْنَا مَعَهُمْ بِرَحْمَتِكَ يَا أَرْحَمَ الرَّاحِمِينَ يَا اللهُ يَا حَيُّ يَا قَيُّومُ لَا إِلَهَ إِلَّا أَنْتَ يَا اللهُ يَا رَبَّنَا يَا وَاسِعَ المَغْفِرَةِ يَا أَرْحَمَ الرَّاحِمِينَ اللَّهُمَّ آمِينَ.''';
 
 const String hizbAlBahrText = r'''حزب البحر
 بسم الله الرحمن الرحيم
@@ -7985,7 +8009,9 @@ const String saharWirdText = r'''وِرْدُ السَّحَر
 ( اللَّهُ لَا إِلَهَ إِلَّا هُوَ الْحَيُّ الْقَيُّومُ لَا تَأْخُذُهُ سِنَةٌ وَلَا نَوْمٌ لَهُ مَا فِي السَّمَاوَاتِ وَمَا فِي الْأَرْضِ مَنْ ذَا الَّذِي يَشْفَعُ عِنْدَهُ إِلَّا بِإِذْنِهِ يَعْلَمُ مَا بَيْنَ أَيْدِيهِمْ وَمَا خَلْفَهُمْ وَلَا يُحِيطُونَ بِشَيْءٍ مِنْ عِلْمِهِ إِلَّا بِمَا شَاءَ وَسِعَ كُرْسِيُّهُ السَّمَاوَاتِ وَالْأَرْضَ وَلَا يَئُودُهُ حِفْظُهُمَا وَهُوَ الْعَلِيُّ الْعَظِيمُ ﴿255﴾
 لا إِكْرَاهَ فِي الدِّينِ قَدْ تَبَيَّنَ الرُّشْدُ مِنَ الْغَيِّ فَمَنْ يَكْفُرْ بِالطَّاغُوتِ وَيُؤْمِنْ بِاللَّهِ فَقَدِ اسْتَمْسَكَ بِالْعُرْوَةِ الْوُثْقَى لَا انْفِصَامَ لَهَا وَاللَّهُ سَمِيعٌ عَلِيمٌ ﴿256﴾
 اللَّهُ وَلِيُّ الَّذِينَ آَمَنُوا يُخْرِجُهُمْ مِنَ الظُّلُمَاتِ إِلَى النُّورِ وَالَّذِينَ كَفَرُوا أَوْلِيَاؤُهُمُ الطَّاغُوتُ يُخْرِجُونَهُمْ مِنَ النُّورِ إِلَى الظُّلُمَاتِ أُولَئِكَ أَصْحَابُ النَّارِ هُمْ فِيهَا خَالِدُونَ ﴿257﴾
-لِلَّهِ مَا فِي السَّمَاوَاتِ وَمَا فِي الْأَرْضِ وَإِنْ تُبْدُوا مَا فِي أَنْفُسِكُمْ أَوْ تُخْفُوهُ يُحَاسِبْكُمْ بِهِ اللَّهُ فَيَغْفِرُ لِمَنْ يَشَاءُ وَيُعَذِّبُ مَنْ يَشَاءُ وَاللَّهُ عَلَى كُلِّ شَيْءٍ قَدِيرٌ ﴿284﴾ آَمَنَ الرَّسُولُ بِمَا أُنْزِلَ إِلَيْهِ مِنْ رَبِّهِ وَالْمُؤْمِنُونَ كُلٌّ آَمَنَ بِاللَّهِ وَمَلَائِكَتِهِ وَكُتُبِهِ وَرُسُلِهِ لَا نُفَرِّقُ بَيْنَ أَحَدٍ مِنْ رُسُلِهِ وَقَالُوا سَمِعْنَا وَأَطَعْنَا غُفْرَانَكَ رَبَّنَا وَإِلَيْكَ الْمَصِيرُ ﴿285﴾ لَا يُكَلِّفُ اللَّهُ نَفْسًا إِلَّا وُسْعَهَا لَهَا مَا كَسَبَتْ وَعَلَيْهَا مَا اكْتَسَبَتْ رَبَّنَا لَا تُؤَاخِذْنَا إِنْ نَسِينَا أَوْ أَخْطَأْنَا رَبَّنَا وَلَا تَحْمِلْ عَلَيْنَا إِصْرًا كَمَا حَمَلْتَهُ عَلَى الَّذِينَ مِنْ قَبْلِنَا رَبَّنَا وَلَا تُحَمِّلْنَا مَا لَا طَاقَةَ لَنَا بِهِ (وَاعْفُ عَنَّا وَاغْفِرْ لَنَا وَارْحَمْنَا (ثَلاثَاً)) أَنْتَ مَوْلَانَا فَانْصُرْنَا عَلَى الْقَوْمِ الْكَافِرِينَ ﴿286﴾)
+لِلَّهِ مَا فِي السَّمَاوَاتِ وَمَا فِي الْأَرْضِ وَإِنْ تُبْدُوا مَا فِي أَنْفُسِكُمْ أَوْ تُخْفُوهُ يُحَاسِبْكُمْ بِهِ اللَّهُ فَيَغْفِرُ لِمَنْ يَشَاءُ وَيُعَذِّبُ مَنْ يَشَاءُ وَاللَّهُ عَلَى كُلِّ شَيْءٍ قَدِيرٌ ﴿284﴾ آَمَنَ الرَّسُولُ بِمَا أُنْزِلَ إِلَيْهِ مِنْ رَبِّهِ وَالْمُؤْمِنُونَ كُلٌّ آَمَنَ بِاللَّهِ وَمَلَائِكَتِهِ وَكُتُبِهِ وَرُسُلِهِ لَا نُفَرِّقُ بَيْنَ أَحَدٍ مِنْ رُسُلِهِ وَقَالُوا سَمِعْنَا وَأَطَعْنَا غُفْرَانَكَ رَبَّنَا وَإِلَيْكَ الْمَصِيرُ ﴿285﴾ لَا يُكَلِّفُ اللَّهُ نَفْسًا إِلَّا وُسْعَهَا لَهَا مَا كَسَبَتْ وَعَلَيْهَا مَا اكْتَسَبَتْ رَبَّنَا لَا تُؤَاخِذْنَا إِنْ نَسِينَا أَوْ أَخْطَأْنَا رَبَّنَا وَلَا تَحْمِلْ عَلَيْنَا إِصْرًا كَمَا حَمَلْتَهُ عَلَى الَّذِينَ مِنْ قَبْلِنَا رَبَّنَا وَلَا تُحَمِّلْنَا مَا لَا طَاقَةَ لَنَا بِهِ
+وَاعْفُ عَنَّا وَاغْفِرْ لَنَا وَارْحَمْنَا (ثَلاثَاً)
+أَنْتَ مَوْلَانَا فَانْصُرْنَا عَلَى الْقَوْمِ الْكَافِرِينَ ﴿286﴾)
 لَقَدْ جَاءَكُمْ رَسُولٌ مِنْ أَنْفُسِكُمْ عَزِيزٌ عَلَيْهِ مَا عَنِتُّمْ حَرِيصٌ عَلَيْكُمْ بِالْمُؤْمِنِينَ رَءُوفٌ رَحِيم
 (فَإِنْ تَوَلَّوْا فَقُلْ حَسْبِيَ اللَّهُ لَا إِلَهَ إِلَّا هُوَ عَلَيْهِ تَوَكَّلْتُ وَهُوَ رَبُّ الْعَرْشِ الْعَظِيمِ) (سَبْعَاً)
 بِسْمِ ٱللَّهِ ٱلرَّحْمَٰنِ ٱلرَّحِيمِ
