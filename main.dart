@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:just_audio/just_audio.dart' show AudioPlayer, PlayerState, ProcessingState;
 import 'package:pdfx/pdfx.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -190,6 +191,8 @@ class KhalwatiApp extends StatelessWidget {
         builder: (context, dark, _) => MaterialApp(
           debugShowCheckedModeBanner: false,
           title: 'الطريقة الخلوتية البكرية',
+          navigatorKey: appNavKey,
+          navigatorObservers: [shellObserver],
           builder: (context, child) {
             // التصميم يُبنى على عرض مرجعي ثابت ثم يُكبَّر/يُصغَّر بنفس النسبة، فيظهر متطابقاً على كل الموبايلات
             // بغض النظر عن حجم الشاشة، وبغض النظر عن إعدادات حجم الخط وحجم العرض في نظام الموبايل.
@@ -214,7 +217,10 @@ class KhalwatiApp extends StatelessWidget {
                     viewInsets: mq.viewInsets / s,
                     systemGestureInsets: mq.systemGestureInsets / s,
                   ),
-                  child: Directionality(textDirection: TextDirection.rtl, child: child!),
+                  child: Directionality(
+                    textDirection: TextDirection.rtl,
+                    child: Stack(fit: StackFit.expand, children: [child!, Positioned.fill(child: const SaharMiniPlayer())]),
+                  ),
                   ),
                 ),
               ),
@@ -1247,6 +1253,7 @@ class SaharPage extends StatelessWidget {
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(title: Text('ورد السحر')),
         body: ListView(padding: EdgeInsets.all(16), children: _stagger([
+          const SaharAudioCard(),
           for (int i = 0; i < saharItems.length; i++)
             SectionTile(
               shade: i / (saharItems.length - 1),
@@ -1256,6 +1263,525 @@ class SaharPage extends StatelessWidget {
               onTap: () => openSaharItem(context, saharItems[i]),
             ),
         ])),
+      );
+}
+
+// ===================== ورد السحر صوتياً =====================
+// ملف الصوت: ضعيه في assets/audio/sahar_wird.m4a (وأضيفي المجلد في pubspec.yaml)
+final GlobalKey<NavigatorState> appNavKey = GlobalKey<NavigatorState>();
+
+// يراقب الصفحات ليعرف هل نحن في الشاشة الرئيسية (فيها الشريط السفلي) أم داخل صفحة فرعية
+class _ShellObserver extends NavigatorObserver {
+  void _upd(Route<dynamic>? r) {
+    if (r is! PageRoute) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) => SaharAudio.onShell.value = r.isFirst);
+  }
+
+  @override
+  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) => _upd(route);
+  @override
+  void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) => _upd(previousRoute);
+  @override
+  void didReplace({Route<dynamic>? newRoute, Route<dynamic>? oldRoute}) => _upd(newRoute);
+  @override
+  void didRemove(Route<dynamic> route, Route<dynamic>? previousRoute) => _upd(previousRoute);
+}
+
+final _ShellObserver shellObserver = _ShellObserver();
+
+String _fmtDur(Duration d) {
+  String two(int n) => n.toString().padLeft(2, '0');
+  final h = d.inHours;
+  final m = d.inMinutes.remainder(60);
+  final s = d.inSeconds.remainder(60);
+  return h > 0 ? '$h:${two(m)}:${two(s)}' : '${two(m)}:${two(s)}';
+}
+
+String _speedLabel(double v) => v == v.roundToDouble() ? '${v.toInt()}x' : '${v}x';
+
+// مشغّل واحد للتطبيق كله: يبقى شغالاً أثناء التنقل بين الصفحات
+class SaharAudio {
+  static const String asset = 'assets/audio/sahar_wird.m4a';
+  static const List<double> speeds = [0.75, 1.0, 1.25, 1.5, 1.75, 2.0];
+  static final AudioPlayer player = AudioPlayer();
+  static final ValueNotifier<bool> started = ValueNotifier<bool>(false); // الشريط الصغير ظاهر
+  static final ValueNotifier<bool> playerPageOpen = ValueNotifier<bool>(false);
+  static final ValueNotifier<bool> onShell = ValueNotifier<bool>(true);
+  static final ValueNotifier<String?> error = ValueNotifier<String?>(null);
+  static final ValueNotifier<double> speed = ValueNotifier<double>(1.0);
+  static Future<void>? _initF;
+  static bool _ready = false;
+  static int _lastSaveMs = 0;
+
+  static Future<void> init() => _initF ??= _init();
+
+  static Future<void> _init() async {
+    try {
+      final p = await SharedPreferences.getInstance();
+      final pos = p.getInt('sahar_audio_pos') ?? 0;
+      speed.value = p.getDouble('sahar_audio_speed') ?? 1.0;
+      await player.setAsset(asset, initialPosition: Duration(milliseconds: pos));
+      await player.setSpeed(speed.value);
+      player.positionStream.listen(_onPos);
+      player.playerStateStream.listen(_onState);
+      _ready = true;
+      error.value = null;
+    } catch (_) {
+      _initF = null;
+      error.value = 'لم يتم العثور على ملف الصوت.\nضعيه في assets/audio/sahar_wird.m4a ثم أعيدي بناء التطبيق.';
+    }
+  }
+
+  static Future<void> _savePos(int ms) async {
+    try {
+      final p = await SharedPreferences.getInstance();
+      await p.setInt('sahar_audio_pos', ms);
+    } catch (_) {}
+  }
+
+  static void _onPos(Duration d) {
+    if (!player.playing) return;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (now - _lastSaveMs < 2000) return;
+    _lastSaveMs = now;
+    _savePos(d.inMilliseconds);
+  }
+
+  static void _onState(PlayerState st) {
+    if (st.processingState == ProcessingState.completed) {
+      if (st.playing) {
+        player.pause();
+        player.seek(Duration.zero);
+        _savePos(0);
+      }
+      return;
+    }
+    if (!st.playing) _savePos(player.position.inMilliseconds);
+  }
+
+  static Future<void> toggle() async {
+    await init();
+    if (!_ready) return;
+    started.value = true;
+    if (player.playing) {
+      await player.pause();
+    } else {
+      player.play();
+    }
+  }
+
+  static Future<void> seekBy(Duration d) async {
+    await init();
+    if (!_ready) return;
+    final total = player.duration ?? Duration.zero;
+    var t = player.position + d;
+    if (t < Duration.zero) t = Duration.zero;
+    if (total > Duration.zero && t > total) t = total;
+    await player.seek(t);
+    _savePos(t.inMilliseconds);
+  }
+
+  static Future<void> setSpeed(double v) async {
+    await init();
+    speed.value = v;
+    if (_ready) await player.setSpeed(v);
+    try {
+      final p = await SharedPreferences.getInstance();
+      await p.setDouble('sahar_audio_speed', v);
+    } catch (_) {}
+  }
+
+  static Future<void> close() async {
+    if (_ready) {
+      await player.pause();
+      await _savePos(player.position.inMilliseconds);
+    }
+    started.value = false;
+  }
+}
+
+// زر التشغيل/الإيقاف (يُستعمل في الصفحة وفي الشريط الصغير)
+class SaharPlayButton extends StatelessWidget {
+  final double size;
+  const SaharPlayButton({super.key, this.size = 84});
+  @override
+  Widget build(BuildContext context) => StreamBuilder<PlayerState>(
+        stream: SaharAudio.player.playerStateStream,
+        builder: (context, snap) {
+          final st = snap.data;
+          final playing = st?.playing ?? false;
+          final busy = st != null && (st.processingState == ProcessingState.loading || (playing && st.processingState == ProcessingState.buffering));
+          return GestureDetector(
+            onTap: () {
+              HapticFeedback.mediumImpact();
+              SaharAudio.toggle();
+            },
+            child: Container(
+              width: size,
+              height: size,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: LinearGradient(begin: Alignment.topRight, end: Alignment.bottomLeft, colors: [lighten(0.14), deepGreen2]),
+                border: Border.all(color: gold, width: size > 60 ? 2.5 : 1.6),
+                boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.28), blurRadius: 12, offset: Offset(0, 4))],
+              ),
+              child: Center(
+                child: busy
+                    ? SizedBox(width: size * 0.4, height: size * 0.4, child: CircularProgressIndicator(strokeWidth: 3, color: Colors.white))
+                    : Icon(playing ? Icons.pause_rounded : Icons.play_arrow_rounded, size: size * 0.6, color: Colors.white),
+              ),
+            ),
+          );
+        },
+      );
+}
+
+// بطاقة الدخول في صفحة ورد السحر
+class SaharAudioCard extends StatelessWidget {
+  const SaharAudioCard({super.key});
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: EdgeInsets.only(bottom: 14),
+        child: GestureDetector(
+          onTap: () {
+            HapticFeedback.selectionClick();
+            Navigator.push(context, SoftRoute(builder: (_) => const SaharAudioPage()));
+          },
+          child: Container(
+            padding: EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(begin: Alignment.topRight, end: Alignment.bottomLeft, colors: [lighten(0.14), deepGreen2]),
+              borderRadius: BorderRadius.circular(22),
+              border: Border.all(color: gold.withOpacity(0.85), width: 1.4),
+              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.25), blurRadius: 14, offset: Offset(0, 6))],
+            ),
+            child: Row(children: [
+              Container(
+                width: 50,
+                height: 50,
+                decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.white.withOpacity(0.12), border: Border.all(color: gold, width: 1.5)),
+                child: Icon(Icons.headphones_rounded, color: Colors.white, size: 28),
+              ),
+              SizedBox(width: 14),
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text('استمع إلى ورد السحر', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold, fontFamily: 'Rsail')),
+                  SizedBox(height: 3),
+                  Text('ملف صوتي واحد: الورد والقصائد كاملة', style: TextStyle(color: Colors.white70, fontSize: 14)),
+                ]),
+              ),
+              StreamBuilder<bool>(
+                stream: SaharAudio.player.playingStream,
+                initialData: false,
+                builder: (context, s) => Icon((s.data ?? false) ? Icons.graphic_eq_rounded : Icons.play_circle_fill_rounded, color: gold, size: 36),
+              ),
+            ]),
+          ),
+        ),
+      );
+}
+
+// الشريط الصغير: يظهر فوق كل صفحات التطبيق ما دام الصوت بدأ
+class SaharMiniPlayer extends StatelessWidget {
+  const SaharMiniPlayer({super.key});
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+        animation: Listenable.merge([SaharAudio.started, SaharAudio.playerPageOpen, SaharAudio.onShell]),
+        builder: (context, _) {
+          if (!SaharAudio.started.value || SaharAudio.playerPageOpen.value) return const SizedBox.shrink();
+          final bottom = MediaQuery.of(context).padding.bottom + (SaharAudio.onShell.value ? 114.0 : 12.0);
+          return Align(
+            alignment: Alignment.bottomCenter,
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(12, 0, 12, bottom),
+              child: Material(type: MaterialType.transparency, child: _bar(context)),
+            ),
+          );
+        },
+      );
+
+  Widget _btn(IconData icon, VoidCallback onTap, {double size = 26, Color color = Colors.white}) => IconButton(
+        padding: EdgeInsets.zero,
+        constraints: BoxConstraints.tightFor(width: 34, height: 34),
+        iconSize: size,
+        color: color,
+        onPressed: onTap,
+        icon: Icon(icon),
+      );
+
+  Widget _bar(BuildContext context) => Container(
+        height: 66,
+        decoration: BoxDecoration(
+          gradient: LinearGradient(begin: Alignment.topRight, end: Alignment.bottomLeft, colors: [lighten(0.14), deepGreen2]),
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(color: gold.withOpacity(0.85), width: 1.3),
+          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.35), blurRadius: 16, offset: Offset(0, 6))],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(21),
+          child: Stack(children: [
+            Row(children: [
+              Expanded(
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => appNavKey.currentState?.push(SoftRoute(builder: (_) => const SaharAudioPage())),
+                  child: Padding(
+                    padding: EdgeInsetsDirectional.only(start: 12),
+                    child: Row(children: [
+                      Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.white.withOpacity(0.12), border: Border.all(color: gold, width: 1.3)),
+                        child: Icon(Icons.headphones_rounded, color: Colors.white, size: 22),
+                      ),
+                      SizedBox(width: 10),
+                      Expanded(
+                        child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          Text('ورد السحر', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                          StreamBuilder<Duration?>(
+                            stream: SaharAudio.player.durationStream,
+                            builder: (context, ds) => StreamBuilder<Duration>(
+                              stream: SaharAudio.player.positionStream,
+                              builder: (context, ps) => Text(
+                                '${_fmtDur(ps.data ?? Duration.zero)} / ${_fmtDur(ds.data ?? Duration.zero)}',
+                                textDirection: TextDirection.ltr,
+                                style: TextStyle(color: Colors.white70, fontSize: 12),
+                              ),
+                            ),
+                          ),
+                        ]),
+                      ),
+                    ]),
+                  ),
+                ),
+              ),
+              Directionality(
+                textDirection: TextDirection.ltr,
+                child: Row(children: [
+                  _btn(Icons.replay_30_rounded, () => SaharAudio.seekBy(Duration(seconds: -30))),
+                  SaharPlayButton(size: 40),
+                  _btn(Icons.forward_30_rounded, () => SaharAudio.seekBy(Duration(seconds: 30))),
+                ]),
+              ),
+              _btn(Icons.close_rounded, () => SaharAudio.close(), size: 20, color: Colors.white70),
+              SizedBox(width: 4),
+            ]),
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              height: 3,
+              child: StreamBuilder<Duration?>(
+                stream: SaharAudio.player.durationStream,
+                builder: (context, ds) => StreamBuilder<Duration>(
+                  stream: SaharAudio.player.positionStream,
+                  builder: (context, ps) {
+                    final total = (ds.data ?? Duration.zero).inMilliseconds;
+                    final v = total > 0 ? ((ps.data ?? Duration.zero).inMilliseconds / total).clamp(0.0, 1.0).toDouble() : 0.0;
+                    return LinearProgressIndicator(value: v, minHeight: 3, backgroundColor: Colors.white12, color: gold);
+                  },
+                ),
+              ),
+            ),
+          ]),
+        ),
+      );
+}
+
+// صفحة المشغّل الكاملة
+class SaharAudioPage extends StatefulWidget {
+  const SaharAudioPage({super.key});
+  @override
+  State<SaharAudioPage> createState() => _SaharAudioPageState();
+}
+
+class _SaharAudioPageState extends State<SaharAudioPage> {
+  double? _drag;
+
+  @override
+  void initState() {
+    super.initState();
+    SaharAudio.init();
+    WidgetsBinding.instance.addPostFrameCallback((_) => SaharAudio.playerPageOpen.value = true);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.addPostFrameCallback((_) => SaharAudio.playerPageOpen.value = false);
+    super.dispose();
+  }
+
+  Widget _medallion() => StreamBuilder<bool>(
+        stream: SaharAudio.player.playingStream,
+        initialData: false,
+        builder: (context, snap) {
+          final playing = snap.data ?? false;
+          return AnimatedContainer(
+            duration: Duration(milliseconds: 500),
+            width: 210,
+            height: 210,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: LinearGradient(begin: Alignment.topRight, end: Alignment.bottomLeft, colors: [lighten(0.14), deepGreen2]),
+              border: Border.all(color: gold, width: 3),
+              boxShadow: [BoxShadow(color: (playing ? gold : green).withOpacity(playing ? 0.55 : 0.30), blurRadius: playing ? 38 : 18, spreadRadius: playing ? 4 : 0)],
+            ),
+            child: ClipOval(
+              child: Stack(alignment: Alignment.center, children: [
+                Positioned.fill(child: CustomPaint(painter: StarPatternPainter(gold.withOpacity(0.18)))),
+                Icon(Icons.nightlight_round, size: 92, color: Colors.white),
+              ]),
+            ),
+          );
+        },
+      );
+
+  Widget _seekBar(BuildContext context) => StreamBuilder<Duration?>(
+        stream: SaharAudio.player.durationStream,
+        builder: (context, ds) {
+          final total = ds.data ?? Duration.zero;
+          return StreamBuilder<Duration>(
+            stream: SaharAudio.player.positionStream,
+            builder: (context, ps) {
+              final pos = ps.data ?? Duration.zero;
+              final maxMs = total.inMilliseconds > 0 ? total.inMilliseconds.toDouble() : 1.0;
+              final cur = (_drag ?? pos.inMilliseconds.toDouble()).clamp(0.0, maxMs).toDouble();
+              final st = TextStyle(fontSize: 14, color: ink(context).withOpacity(0.7), fontWeight: FontWeight.w600);
+              return Directionality(
+                textDirection: TextDirection.ltr,
+                child: Column(children: [
+                  SliderTheme(
+                    data: SliderTheme.of(context).copyWith(
+                      activeTrackColor: gold,
+                      inactiveTrackColor: gold.withOpacity(0.25),
+                      thumbColor: gold,
+                      overlayColor: gold.withOpacity(0.15),
+                      trackHeight: 5,
+                    ),
+                    child: Slider(
+                      value: cur,
+                      min: 0,
+                      max: maxMs,
+                      onChanged: total.inMilliseconds > 0 ? (v) => setState(() => _drag = v) : null,
+                      onChangeEnd: (v) async {
+                        await SaharAudio.player.seek(Duration(milliseconds: v.round()));
+                        SaharAudio._savePos(v.round());
+                        if (mounted) setState(() => _drag = null);
+                      },
+                    ),
+                  ),
+                  Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 22),
+                    child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                      Text(_fmtDur(Duration(milliseconds: cur.round())), style: st),
+                      Text(_fmtDur(total), style: st),
+                    ]),
+                  ),
+                ]),
+              );
+            },
+          );
+        },
+      );
+
+  Widget _controls(BuildContext context) {
+    final c = accent(context);
+    return Directionality(
+      textDirection: TextDirection.ltr,
+      child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+        IconButton(
+          iconSize: 46,
+          color: c,
+          onPressed: () {
+            HapticFeedback.selectionClick();
+            SaharAudio.seekBy(Duration(seconds: -30));
+          },
+          icon: Icon(Icons.replay_30_rounded),
+        ),
+        SizedBox(width: 18),
+        SaharPlayButton(size: 84),
+        SizedBox(width: 18),
+        IconButton(
+          iconSize: 46,
+          color: c,
+          onPressed: () {
+            HapticFeedback.selectionClick();
+            SaharAudio.seekBy(Duration(seconds: 30));
+          },
+          icon: Icon(Icons.forward_30_rounded),
+        ),
+      ]),
+    );
+  }
+
+  Widget _speedPanel(BuildContext context) => ValueListenableBuilder<double>(
+        valueListenable: SaharAudio.speed,
+        builder: (context, cur, _) => Column(children: [
+          Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+            Icon(Icons.speed_rounded, color: gold, size: 22),
+            SizedBox(width: 6),
+            Text('سرعة التشغيل', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: ink(context))),
+          ]),
+          SizedBox(height: 12),
+          Wrap(
+            alignment: WrapAlignment.center,
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final v in SaharAudio.speeds)
+                ChoiceChip(
+                  label: Text(_speedLabel(v), textDirection: TextDirection.ltr),
+                  selected: (cur - v).abs() < 0.01,
+                  selectedColor: gold,
+                  labelStyle: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: (cur - v).abs() < 0.01 ? Colors.black : ink(context)),
+                  onSelected: (_) {
+                    HapticFeedback.selectionClick();
+                    SaharAudio.setSpeed(v);
+                  },
+                ),
+            ],
+          ),
+        ]),
+      );
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(title: Text('ورد السحر صوتياً')),
+        body: ListView(
+          padding: EdgeInsets.fromLTRB(20, 24, 20, 40),
+          children: [
+            Center(child: _medallion()),
+            SizedBox(height: 22),
+            Text('وِرْدُ السَّحَر', textAlign: TextAlign.center, style: TextStyle(fontFamily: 'Rsail', fontSize: 30, fontWeight: FontWeight.bold, color: accent(context))),
+            SizedBox(height: 4),
+            Text('الورد كاملاً مع القصائد', textAlign: TextAlign.center, style: TextStyle(fontSize: 16, color: ink(context).withOpacity(0.7))),
+            SizedBox(height: 22),
+            ValueListenableBuilder<String?>(
+              valueListenable: SaharAudio.error,
+              builder: (context, err, _) {
+                if (err == null) return const SizedBox.shrink();
+                return Container(
+                  margin: EdgeInsets.only(bottom: 16),
+                  padding: EdgeInsets.all(14),
+                  decoration: BoxDecoration(color: Colors.red.withOpacity(0.10), borderRadius: BorderRadius.circular(14), border: Border.all(color: Colors.red.withOpacity(0.5))),
+                  child: Column(children: [
+                    Text(err, textAlign: TextAlign.center, style: TextStyle(fontSize: 15, height: 1.6, color: ink(context))),
+                    SizedBox(height: 8),
+                    TextButton(onPressed: () => SaharAudio.init(), child: Text('إعادة المحاولة')),
+                  ]),
+                );
+              },
+            ),
+            _seekBar(context),
+            SizedBox(height: 10),
+            _controls(context),
+            SizedBox(height: 30),
+            _speedPanel(context),
+            SizedBox(height: 22),
+            Text('يُحفظ مكان التوقف تلقائياً وتكملين منه المرة القادمة', textAlign: TextAlign.center, style: TextStyle(fontSize: 14, color: ink(context).withOpacity(0.55))),
+          ],
+        ),
       );
 }
 
@@ -4246,6 +4772,50 @@ class _ClockSettingsPageState extends State<ClockSettingsPage> {
 
 // القصيدة: شعر عمودي. كل بيت سطران: الصدر من اليمين، والعجز تحته مباشرة مزاحاً 8 مسافات.
 // كل شطر في سطر واحد دائماً بدون نزول، والخط يتصغر تلقائياً بقدر الحاجة ليناسب عرض الشاشة.
+// فاصل زخرفي بين بيت وبيت في القصائد
+class PoemDivider extends StatelessWidget {
+  const PoemDivider({super.key});
+  @override
+  Widget build(BuildContext context) {
+    final c = gold;
+    Widget line(bool toRight) => Expanded(
+          child: Container(
+            height: 1.2,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.centerLeft,
+                end: Alignment.centerRight,
+                colors: toRight ? [c.withOpacity(0.0), c.withOpacity(0.75)] : [c.withOpacity(0.75), c.withOpacity(0.0)],
+              ),
+            ),
+          ),
+        );
+    Widget diamond(double size, double op) => Transform.rotate(
+          angle: math.pi / 4,
+          child: Container(width: size, height: size, decoration: BoxDecoration(color: c.withOpacity(op), borderRadius: BorderRadius.circular(1))),
+        );
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12, top: 2),
+      child: Directionality(
+        textDirection: TextDirection.ltr,
+        child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          line(true),
+          const SizedBox(width: 6),
+          diamond(4, 0.6),
+          const SizedBox(width: 5),
+          diamond(8, 0.95),
+          const SizedBox(width: 5),
+          diamond(4, 0.6),
+          const SizedBox(width: 6),
+          line(false),
+        ],
+      )),
+    );
+  }
+}
+
 class PoemView extends StatelessWidget {
   final List<String> lines;
   final FontCfg cfg;
@@ -4335,12 +4905,19 @@ class PoemView extends StatelessWidget {
                       onReset: () => onCountReset?.call(e.key),
                       child: FittedBox(fit: BoxFit.scaleDown, alignment: AlignmentDirectional.centerStart, child: SizedBox(width: avail, child: inner)),
                     );
-              return markWrap(
-                key: keyFor(e.key),
-                marked: marked == e.key,
-                onLongPress: () => onMark(e.key),
-                iconSize: 14,
-                child: Padding(padding: EdgeInsets.only(bottom: 10), child: content),
+              final isLast = e.key == bayts.length - 1;
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  markWrap(
+                    key: keyFor(e.key),
+                    marked: marked == e.key,
+                    onLongPress: () => onMark(e.key),
+                    iconSize: 14,
+                    child: Padding(padding: EdgeInsets.only(bottom: isLast ? 10 : 4), child: content),
+                  ),
+                  if (!isLast) const PoemDivider(),
+                ],
               );
             }(),
         ],
@@ -7011,105 +7588,106 @@ const String saharMuqaddimaText = r'''الْمُقَدِّمَة
 فَاعْلَمْ أَيُّهَا الْمُرِيدُ الْمُلَازِمُ عَلَى اقْتِطَافِ أَزْهَارِ الْأَوْرَادِ مِنْ رِيَاضِ الْإِمْدَادِ فِي حَضَرَاتِ الْإِسْعَادِ أَنِّي لَمَّا رَأَيْتُ النُّفُوسَ مُتَعَشِّقَةً فِي ذَلِكَ رَاغِبَةً فِيمَا هُنَالِكَ لِتَنْوِيرِ الْمَسَالِكِ عَنَّ لِي أَنْ أَصْنَعَ لِلْإِخْوَانِ وِرْدًا يَقْتَبِسُونَ مِنْ نُورِهِ عَجَائِبَ فِي حِنْدِسِ الْأَوْهَامِ وَ يَتَلَقَّوْنَ مِنْ تَغْرِيدِ شَحْرُورِهِ غَرَائِبَ تَدِقُّ عَلَى الْأَفْهَامِ فَشَرَعْتُ فِي ذَلِكَ مُعْتَمِدًا عَلَى السَّيِّدِ الْمَالِكِ فَأَقُولُ فِي تَرْجَمَتِهِ رَاجِيًا فَيْضَ فَضْلِهِ وَ مِنَّتِهِ هَذَا وِرْدٌ يُتْلَى فِي السَّحَرِ نَافِعٌ إِنْ شَاءَ اللَّهُ تَعَالَى لِمَنْ وَاظَبَ عَلَيْهِ مَعَ التَّدَبُّرِ لِمَعَانِيهِ وَ التَّفَهُّمِ لِمَبَانِيهِ فُتِحَ بِهِ عَلَى الْعَبْدِ الْفَقِيرِ وَ الْعَاجِزِ الْحَقِيرِ مُصْطَفَى ابْنِ كَمَالِ الدِّينِ بْنِ عَلِيٍّ بْنِ كَمَالِ الدِّينِ بْنِ مُحْيِي الدِّينِ الصِّدِّيقِيِّ نَسَبًا الْخَلْوَتِيِّ طَرِيقَةً الْحَنَفِيِّ مَذْهَبًا وَ كَانَ ذَلِكَ فِي أَوَائِلِ شَهْرِ رَبِيعٍ الْأَوَّلِ أَيَّامَ زِيَارَتِنَا لِبَيْتِ الْمَقْدِسِ وَ كَمُلَ فِي مَجْلِسٍ لَطِيفٍ وَأَضَفْتُ إِلَيْهِ بَعْدَ ذَلِكَ قَصِيدَةً مِيمِيَّةً فُتِحَ عَلَيَّ بِهَا سَابِقًا وَ صَلَوَاتٍ عَلَى النَّبِيِّ زِدْتُهَا الْآنَ وَ قَصِيدَتِي الَّتِي سَمَّيْتُهَا بِالْمُنَبِّهَجَةِ فِي الطَّرِيقَةِ الْمُنْبَلِجَةِ الَّتِي عَلَى وَزْنِ الْمُنْفَرِجَةِ وَ زِدْتُ بَعْضَ تَوَسُّلَاتٍ وَ قَدْ رَتَّبْتُهُ عَلَى حُرُوفِ الْمُعْجَمِ فِي أَوَائِلِ تَوَسُّلَاتِهِ لِيَكُونَ ذَلِكَ أَسْهَلَ فِي حِفْظِ كَلِمَاتِهِ وَ اللَّهَ أَسْأَلُ أَنْ يَنْفَعَ بِهِ مَنْ لَازَمَ عَلَى تِلَاوَتِهِ وَ لَمْ يُخْلِ مُصَنِّفَهُ مِنْ دَعَوَاتِهِ إِنَّهُ وَلِيُّ مَنْ يُنَادِيهِ عَلَى الْخُصُوصِ فِي الْأَسْحَارِ بِلِسَانِ الذُّلِّ وَ الِانْكِسَارِ فَإِنَّهُ لَا يَزَالُ مَغْمُورًا بِآلَائِهِ وَ أَيَادِيهِ فَأَقُولُ أَوَّلَ مَا يَبْدَأُ التَّالِي بِقَوْلِهِ :''';
 
 const String saharWirdText = r'''وِرْدُ السَّحَر
-أَعُوذُ بِاللهِ مِنَ الشَّيْطَانِ الرَّجِيمِ . بِسْمِ اللهِ الرَّحْمَنِ الرَّحِيمِ
-وَيَقْرَأُ )بِسْمِ اللَّهِ الرَّحْمَنِ الرَّحِيمِ ﴿1﴾ الْحَمْدُ لِلَّهِ رَبِّ الْعَالَمِينَ ﴿2﴾ الرَّحْمَنِ الرَّحِيمِ ﴿3﴾ مَالِكِ يَوْمِ الدِّينِ ﴿4﴾ إِيَّاكَ نَعْبُدُ وَإِيَّاكَ نَسْتَعِينُ ﴿5﴾ اهْدِنَا الصِّرَاطَ الْمُسْتَقِيمَ ﴿6﴾ صِرَاطَ الَّذِينَ أَنْعَمْتَ عَلَيْهِمْ غَيْرِ الْمَغْضُوبِ عَلَيْهِمْ وَلَا الضَّالِّينَ ﴿7﴾)
-بِسْمِ اللهِ الرَّحْمَنِ الرَّحِيمِ
-(الم ﴿1﴾ ذَلِكَ الْكِتَابُ لَا رَيْبَ فِيهِ هُدًى لِلْمُتَّقِينَ ﴿2﴾ الَّذِينَ يُؤْمِنُونَ بِالْغَيْبِ وَيُقِيمُونَ الصَّلَاةَ وَمِمَّا رَزَقْنَاهُمْ يُنْفِقُونَ ﴿3﴾ وَالَّذِينَ يُؤْمِنُونَ بِمَا أُنْزِلَ إِلَيْكَ وَمَا أُنْزِلَ مِنْ قَبْلِكَ وَبِالْآَخِرَةِ هُمْ يُوقِنُونَ ﴿4﴾ أُولَئِكَ عَلَى هُدًى مِنْ رَبِّهِمْ وَأُولَئِكَ هُمُ الْمُفْلِحُونَ ﴿5﴾)
-(وَإِلَهِكُمْ إِلَهٌ وَاحِدٌ لا إِلَهَ إِلا هُوَ الرَّحْمَنُ الرَّحِيمُ )
-( اللَّهُ لَا إِلَهَ إِلَّا هُوَ الْحَيُّ الْقَيُّومُ لَا تَأْخُذُهُ سِنَةٌ وَلَا نَوْمٌ لَهُ مَا فِي السَّمَاوَاتِ وَمَا فِي الْأَرْضِ مَنْ ذَا الَّذِي يَشْفَعُ عِنْدَهُ إِلَّا بِإِذْنِهِ يَعْلَمُ مَا بَيْنَ أَيْدِيهِمْ وَمَا خَلْفَهُمْ وَلَا يُحِيطُونَ بِشَيْءٍ مِنْ عِلْمِهِ إِلَّا بِمَا شَاءَ وَسِعَ كُرْسِيُّهُ السَّمَاوَاتِ وَالْأَرْضَ وَلَا يَئُودُهُ حِفْظُهُمَا وَهُوَ الْعَلِيُّ الْعَظِيمُ ﴿255﴾
-لا إِكْرَاهَ فِي الدِّينِ قَدْ تَبَيَّنَ الرُّشْدُ مِنَ الْغَيِّ فَمَنْ يَكْفُرْ بِالطَّاغُوتِ وَيُؤْمِنْ بِاللَّهِ فَقَدِ اسْتَمْسَكَ بِالْعُرْوَةِ الْوُثْقَى لَا انْفِصَامَ لَهَا وَاللَّهُ سَمِيعٌ عَلِيمٌ ﴿256﴾
-اللَّهُ وَلِيُّ الَّذِينَ آَمَنُوا يُخْرِجُهُمْ مِنَ الظُّلُمَاتِ إِلَى النُّورِ وَالَّذِينَ كَفَرُوا أَوْلِيَاؤُهُمُ الطَّاغُوتُ يُخْرِجُونَهُمْ مِنَ النُّورِ إِلَى الظُّلُمَاتِ أُولَئِكَ أَصْحَابُ النَّارِ هُمْ فِيهَا خَالِدُونَ ﴿257﴾
-لِلَّهِ مَا فِي السَّمَاوَاتِ وَمَا فِي الْأَرْضِ وَإِنْ تُبْدُوا مَا فِي أَنْفُسِكُمْ أَوْ تُخْفُوهُ يُحَاسِبْكُمْ بِهِ اللَّهُ فَيَغْفِرُ لِمَنْ يَشَاءُ وَيُعَذِّبُ مَنْ يَشَاءُ وَاللَّهُ عَلَى كُلِّ شَيْءٍ قَدِيرٌ ﴿284﴾ آَمَنَ الرَّسُولُ بِمَا أُنْزِلَ إِلَيْهِ مِنْ رَبِّهِ وَالْمُؤْمِنُونَ كُلٌّ آَمَنَ بِاللَّهِ وَمَلَائِكَتِهِ وَكُتُبِهِ وَرُسُلِهِ لَا نُفَرِّقُ بَيْنَ أَحَدٍ مِنْ رُسُلِهِ وَقَالُوا سَمِعْنَا وَأَطَعْنَا غُفْرَانَكَ رَبَّنَا وَإِلَيْكَ الْمَصِيرُ ﴿285﴾ لَا يُكَلِّفُ اللَّهُ نَفْسًا إِلَّا وُسْعَهَا لَهَا مَا كَسَبَتْ وَعَلَيْهَا مَا اكْتَسَبَتْ رَبَّنَا لَا تُؤَاخِذْنَا إِنْ نَسِينَا أَوْ أَخْطَأْنَا رَبَّنَا وَلَا تَحْمِلْ عَلَيْنَا إِصْرًا كَمَا حَمَلْتَهُ عَلَى الَّذِينَ مِنْ قَبْلِنَا رَبَّنَا وَلَا تُحَمِّلْنَا مَا لَا طَاقَةَ لَنَا بِهِ وَاعْفُ عَنَّا وَاغْفِرْ لَنَا وَارْحَمْنَا أَنْتَ مَوْلَانَا فَانْصُرْنَا عَلَى الْقَوْمِ الْكَافِرِينَ ﴿286﴾)
-وَاعْفُ عَنَّا وَاغْفِرْ لَنَا وَارْحَمْنَا (ثَلاثَاً)
-لَقَدْ جَاءَكُمْ رَسُولٌ مِنْ أَنْفُسِكُمْ عَزِيزٌ عَلَيْهِ مَا عَنِتُّمْ حَرِيصٌ عَلَيْكُمْ بِالْمُؤْمِنِينَ رَءُوفٌ رَحِيم
-(فَإِنْ تَوَلَّوْا فَقُلْ حَسْبِيَ اللَّهُ لَا إِلَهَ إِلَّا هُوَ عَلَيْهِ تَوَكَّلْتُ وَهُوَ رَبُّ الْعَرْشِ الْعَظِيمِ) (سَبْعَاً)
-بِسْمِ ٱللَّهِ ٱلرَّحْمَٰنِ ٱلرَّحِيمِ
-قُلْ هُوَ ٱللَّهُ أَحَدٌ ﴿1﴾ ٱللَّهُ ٱلصَّمَدُ ﴿2﴾ لَمْ يَلِدْ وَلَمْ يُولَدْ ﴿3﴾ وَلَمْ يَكُن لَّهُۥ كُفُوًا أَحَدٌۢ ﴿4﴾(ثَلاثَاً )
-بِسْمِ ٱللَّهِ ٱلرَّحْمَٰنِ ٱلرَّحِيمِ
-قُلْ أَعُوذُ بِرَبِّ ٱلْفَلَقِ ﴿1﴾ مِن شَرِّ مَا خَلَقَ ﴿2﴾ وَمِن شَرِّ غَاسِقٍ إِذَا وَقَبَ ﴿3﴾ وَمِن شَرِّ ٱلنَّفَّٰثَٰتِ فِى ٱلْعُقَدِ ﴿4﴾ وَمِن شَرِّ حَاسِدٍ إِذَا حَسَدَ ﴿5﴾ (مرة واحدة)
-بِسْمِ ٱللَّهِ ٱلرَّحْمَٰنِ ٱلرَّحِيمِ
-قُلْ أَعُوذُ بِرَبِّ ٱلنَّاسِ ﴿1﴾ مَلِكِ ٱلنَّاسِ ﴿2﴾ إِلَٰهِ ٱلنَّاسِ ﴿3﴾ مِن شَرِّ ٱلْوَسْوَاسِ ٱلْخَنَّاسِ ﴿4﴾ ٱلَّذِى يُوَسْوِسُ فِى صُدُورِ ٱلنَّاسِ ﴿5﴾ مِنَ ٱلْجِنَّةِ وَٱلنَّاسِ ﴿6﴾ (مرة واحدة)
-ثُمَّ يَقُولُ: أَسْتَغْفِرُ اللهَ العَظِيمَ (سبعين مرة )
-أَسْتَغْفِرُ اللهَ العَظِيمَ الَّذِي لا إِلَهَ إِلا هُوَ الحَيَّ القَيُّومَ بَدِيعَ السَّمَاوَاتِ والأرضِ وَمَا بَيْنَهُمَا مِنْ جَمِيعِ جُرْمِي وَظُلمِي وَمَا جَنَيْتُ عَلَى نَفْسِي وَأَتُوبُ إِلَيْهِ ( ثَلاثَاً )
-بِسْمِ اللهِ الَّذِي لا يَضُرُّ مَعَ اسْمِهِ شَيْءٌ فِي الأَرْضِ وَلا فِي السَّمَاءِ وَهُوَ السَّمِيعُ العَلِيمُ ( ثَلاثَاً )
-ثُمَّ يَقُولُ :
-بسْمِ اللهِ الرَّحْمَنِ الرَّحِيم
+أَعُوذُ بِاللهِ مِنَ الشَّيْطَانِ الرَّجِيمِ
+بِسْمِ اللهِ الرَّحْمَنِ الرَّحِيمِ
+بِسْمِ اللَّهِ الرَّحْمَنِ الرَّحِيمِ ﴿1﴾ الْحَمْدُ لِلَّهِ رَبِّ الْعَالَمِينَ ﴿2﴾ الرَّحْمَنِ الرَّحِيمِ ﴿3﴾ مَالِكِ يَوْمِ الدِّينِ ﴿4﴾ إِيَّاكَ نَعْبُدُ وَإِيَّاكَ نَسْتَعِينُ ﴿5﴾ اهْدِنَا الصِّرَاطَ الْمُسْتَقِيمَ ﴿6﴾ صِرَاطَ الَّذِينَ أَنْعَمْتَ عَلَيْهِمْ غَيْرِ الْمَغْضُوبِ عَلَيْهِمْ وَلَا الضَّالِّينَ ﴿7﴾)
+بِسْمِ اللهِ الرَّحْمَنِ الرَّحِيمِ
+(الم ﴿1﴾ ذَلِكَ الْكِتَابُ لَا رَيْبَ فِيهِ هُدًى لِلْمُتَّقِينَ ﴿2﴾ الَّذِينَ يُؤْمِنُونَ بِالْغَيْبِ وَيُقِيمُونَ الصَّلَاةَ وَمِمَّا رَزَقْنَاهُمْ يُنْفِقُونَ ﴿3﴾ وَالَّذِينَ يُؤْمِنُونَ بِمَا أُنْزِلَ إِلَيْكَ وَمَا أُنْزِلَ مِنْ قَبْلِكَ وَبِالْآَخِرَةِ هُمْ يُوقِنُونَ ﴿4﴾ أُولَئِكَ عَلَى هُدًى مِنْ رَبِّهِمْ وَأُولَئِكَ هُمُ الْمُفْلِحُونَ ﴿5﴾)
+(وَإِلَهِكُمْ إِلَهٌ وَاحِدٌ لا إِلَهَ إِلا هُوَ الرَّحْمَنُ الرَّحِيمُ )
+( اللَّهُ لَا إِلَهَ إِلَّا هُوَ الْحَيُّ الْقَيُّومُ لَا تَأْخُذُهُ سِنَةٌ وَلَا نَوْمٌ لَهُ مَا فِي السَّمَاوَاتِ وَمَا فِي الْأَرْضِ مَنْ ذَا الَّذِي يَشْفَعُ عِنْدَهُ إِلَّا بِإِذْنِهِ يَعْلَمُ مَا بَيْنَ أَيْدِيهِمْ وَمَا خَلْفَهُمْ وَلَا يُحِيطُونَ بِشَيْءٍ مِنْ عِلْمِهِ إِلَّا بِمَا شَاءَ وَسِعَ كُرْسِيُّهُ السَّمَاوَاتِ وَالْأَرْضَ وَلَا يَئُودُهُ حِفْظُهُمَا وَهُوَ الْعَلِيُّ الْعَظِيمُ ﴿255﴾
+لا إِكْرَاهَ فِي الدِّينِ قَدْ تَبَيَّنَ الرُّشْدُ مِنَ الْغَيِّ فَمَنْ يَكْفُرْ بِالطَّاغُوتِ وَيُؤْمِنْ بِاللَّهِ فَقَدِ اسْتَمْسَكَ بِالْعُرْوَةِ الْوُثْقَى لَا انْفِصَامَ لَهَا وَاللَّهُ سَمِيعٌ عَلِيمٌ ﴿256﴾
+اللَّهُ وَلِيُّ الَّذِينَ آَمَنُوا يُخْرِجُهُمْ مِنَ الظُّلُمَاتِ إِلَى النُّورِ وَالَّذِينَ كَفَرُوا أَوْلِيَاؤُهُمُ الطَّاغُوتُ يُخْرِجُونَهُمْ مِنَ النُّورِ إِلَى الظُّلُمَاتِ أُولَئِكَ أَصْحَابُ النَّارِ هُمْ فِيهَا خَالِدُونَ ﴿257﴾
+لِلَّهِ مَا فِي السَّمَاوَاتِ وَمَا فِي الْأَرْضِ وَإِنْ تُبْدُوا مَا فِي أَنْفُسِكُمْ أَوْ تُخْفُوهُ يُحَاسِبْكُمْ بِهِ اللَّهُ فَيَغْفِرُ لِمَنْ يَشَاءُ وَيُعَذِّبُ مَنْ يَشَاءُ وَاللَّهُ عَلَى كُلِّ شَيْءٍ قَدِيرٌ ﴿284﴾ آَمَنَ الرَّسُولُ بِمَا أُنْزِلَ إِلَيْهِ مِنْ رَبِّهِ وَالْمُؤْمِنُونَ كُلٌّ آَمَنَ بِاللَّهِ وَمَلَائِكَتِهِ وَكُتُبِهِ وَرُسُلِهِ لَا نُفَرِّقُ بَيْنَ أَحَدٍ مِنْ رُسُلِهِ وَقَالُوا سَمِعْنَا وَأَطَعْنَا غُفْرَانَكَ رَبَّنَا وَإِلَيْكَ الْمَصِيرُ ﴿285﴾ لَا يُكَلِّفُ اللَّهُ نَفْسًا إِلَّا وُسْعَهَا لَهَا مَا كَسَبَتْ وَعَلَيْهَا مَا اكْتَسَبَتْ رَبَّنَا لَا تُؤَاخِذْنَا إِنْ نَسِينَا أَوْ أَخْطَأْنَا رَبَّنَا وَلَا تَحْمِلْ عَلَيْنَا إِصْرًا كَمَا حَمَلْتَهُ عَلَى الَّذِينَ مِنْ قَبْلِنَا رَبَّنَا وَلَا تُحَمِّلْنَا مَا لَا طَاقَةَ لَنَا بِهِ وَاعْفُ عَنَّا وَاغْفِرْ لَنَا وَارْحَمْنَا أَنْتَ مَوْلَانَا فَانْصُرْنَا عَلَى الْقَوْمِ الْكَافِرِينَ ﴿286﴾)
+وَاعْفُ عَنَّا وَاغْفِرْ لَنَا وَارْحَمْنَا (ثَلاثَاً)
+لَقَدْ جَاءَكُمْ رَسُولٌ مِنْ أَنْفُسِكُمْ عَزِيزٌ عَلَيْهِ مَا عَنِتُّمْ حَرِيصٌ عَلَيْكُمْ بِالْمُؤْمِنِينَ رَءُوفٌ رَحِيم
+(فَإِنْ تَوَلَّوْا فَقُلْ حَسْبِيَ اللَّهُ لَا إِلَهَ إِلَّا هُوَ عَلَيْهِ تَوَكَّلْتُ وَهُوَ رَبُّ الْعَرْشِ الْعَظِيمِ) (سَبْعَاً)
+بِسْمِ ٱللَّهِ ٱلرَّحْمَٰنِ ٱلرَّحِيمِ
+قُلْ هُوَ ٱللَّهُ أَحَدٌ ﴿1﴾ ٱللَّهُ ٱلصَّمَدُ ﴿2﴾ لَمْ يَلِدْ وَلَمْ يُولَدْ ﴿3﴾ وَلَمْ يَكُن لَّهُۥ كُفُوًا أَحَدٌۢ ﴿4﴾(ثَلاثَاً )
+بِسْمِ ٱللَّهِ ٱلرَّحْمَٰنِ ٱلرَّحِيمِ
+قُلْ أَعُوذُ بِرَبِّ ٱلْفَلَقِ ﴿1﴾ مِن شَرِّ مَا خَلَقَ ﴿2﴾ وَمِن شَرِّ غَاسِقٍ إِذَا وَقَبَ ﴿3﴾ وَمِن شَرِّ ٱلنَّفَّٰثَٰتِ فِى ٱلْعُقَدِ ﴿4﴾ وَمِن شَرِّ حَاسِدٍ إِذَا حَسَدَ ﴿5﴾ (مرة واحدة)
+بِسْمِ ٱللَّهِ ٱلرَّحْمَٰنِ ٱلرَّحِيمِ
+قُلْ أَعُوذُ بِرَبِّ ٱلنَّاسِ ﴿1﴾ مَلِكِ ٱلنَّاسِ ﴿2﴾ إِلَٰهِ ٱلنَّاسِ ﴿3﴾ مِن شَرِّ ٱلْوَسْوَاسِ ٱلْخَنَّاسِ ﴿4﴾ ٱلَّذِى يُوَسْوِسُ فِى صُدُورِ ٱلنَّاسِ ﴿5﴾ مِنَ ٱلْجِنَّةِ وَٱلنَّاسِ ﴿6﴾ (مرة واحدة)
+ثُمَّ يَقُولُ: أَسْتَغْفِرُ اللهَ العَظِيمَ (سبعين مرة )
+أَسْتَغْفِرُ اللهَ العَظِيمَ الَّذِي لا إِلَهَ إِلا هُوَ الحَيَّ القَيُّومَ بَدِيعَ السَّمَاوَاتِ والأرضِ وَمَا بَيْنَهُمَا مِنْ جَمِيعِ جُرْمِي وَظُلمِي وَمَا جَنَيْتُ عَلَى نَفْسِي وَأَتُوبُ إِلَيْهِ ( ثَلاثَاً )
+بِسْمِ اللهِ الَّذِي لا يَضُرُّ مَعَ اسْمِهِ شَيْءٌ فِي الأَرْضِ وَلا فِي السَّمَاءِ وَهُوَ السَّمِيعُ العَلِيمُ ( ثَلاثَاً )
+ثُمَّ يَقُولُ :
+بسْمِ اللهِ الرَّحْمَنِ الرَّحِيم
 حَرْفُ الهَمْزَةِ:
-إِلَهِي أَنْتَ المَدْعُوُّ بِكُلِّ لِسَانٍ وَالمَقْصُودُ فِي كُلِّ آنٍ ، إِلَهِي أَنْتَ قُلتَ أُدْعُونِي أَسْتَجِبْ لَكُمْ ، فَهَا نَحْنُ مُتَوَجُِّهُونَ إِلَيْكَ بِكُلِّيَّتِنَا فَلا تَرُدَّنَا وَاسْتَجِبْ لَنَا كَمَا وَعَدْتَنَا ، إِلَهِي أَيْنَ المَفَرُّ مِنْكَ وَأَنْتَ المُحِيطُ بِالأَكْوَانِ ، وَكَيْفَ البَرَاحُ عَنْكَ وَأَنْتَ الَّذِي قَيَّدْتنَا بِلَطَائِفِ الإِحْسَانِ ، إِلَهِي إِنِّي أَخَافُ أَنْ تُعَذِّبَنِي بِأَفْضَلِ أَعْمَالِي ، فَكَيْفَ لا أَخَافُ مِنْ عِقَابِكَ بأسوأ أَحْوَالِي .
+إِلَهِي أَنْتَ المَدْعُوُّ بِكُلِّ لِسَانٍ وَالمَقْصُودُ فِي كُلِّ آنٍ ، إِلَهِي أَنْتَ قُلتَ أُدْعُونِي أَسْتَجِبْ لَكُمْ ، فَهَا نَحْنُ مُتَوَجُِّهُونَ إِلَيْكَ بِكُلِّيَّتِنَا فَلا تَرُدَّنَا وَاسْتَجِبْ لَنَا كَمَا وَعَدْتَنَا ، إِلَهِي أَيْنَ المَفَرُّ مِنْكَ وَأَنْتَ المُحِيطُ بِالأَكْوَانِ ، وَكَيْفَ البَرَاحُ عَنْكَ وَأَنْتَ الَّذِي قَيَّدْتنَا بِلَطَائِفِ الإِحْسَانِ ، إِلَهِي إِنِّي أَخَافُ أَنْ تُعَذِّبَنِي بِأَفْضَلِ أَعْمَالِي ، فَكَيْفَ لا أَخَافُ مِنْ عِقَابِكَ بأسوأ أَحْوَالِي .
 حَرْفُ البَاءِ
-إِلَهِي بِحَقِّ جَمَالِكَ الَّذِي فَتَّتَ بِهِ أَكْبَادَ المُحِبِّينَ ، وَبِجَلالِكَ الَّذِي تَحَيَّرَتْ فِي عَظَمَتِهِ أَلبَابُ العَارِفِينَ ، إِلَهِي بِحَقِّ حَقِيقَتِكَ الَّتِي لا تُدْرِكُهَا الحَقَائِقُ ، وَبِسِرِّ سِرِّ سِرِّكَ الَّذِي لا تَفِي بِالإِفْصَاحِ عَنْ حَقِيقَتِهِ الرَّقَائِقُ ، إِلَهِي بِرُوحِ القُدُسِ قَدِّسْ سَرَائِرَنَا وَبِرُوحِ سَيِّدِنَا مُحَمَّدٍ صَلَّى اللهُ عَلَيْهِ وَسَلَّمَ خَلِّصْ مَعَارِفَنَا ، وَبِرُوحِ أَبِينَا آدَمَ اجْعَل أَرْوَاحَنَا سَابِحَاتٍ فِي عَوَالِمِ الجَبَرُوتِ ، وَاكْشِفْ لَهُمْ عَنْ حَضَائِرِ اللاهُوتِ . إِلَهِي بِالنُّورِ المُحَمَّدِيِّ الَّذِي رَفَعْتَ عَلَى كُلِّ رَفِيعٍ مَقَامَهُ ، وَضَرَبْتَ فَوْقِ خِزَانَةِ أَسْرَارِ أُلُوهِيَّتِكَ أَعْلامَهُ ، افْتَحْ لَنَا فَتْحَاً صَمَدَانِيَّاً وَعِلمَاً رَبَّانِيَّاً وَتَجَلِّيَاً رَحْمَانِيَّاً وَفَيْضَاً إِحْسَانِيَّاً .
-حَرْفُ التَّاءِ
-إِلَهِي تَوَلَّنِي بِالهِدَايَةِ وَالرِّعَايَةِ وَالحِمَايَةِ وَالكِفَايَةِ ، إِلَهِي تُبْ عَلَيَّ تَوْبَةً نَصُوحَاً لا أَنْقُضُ عَهْدَهَا أَبَدَا ً، وَاحْفَظْنِي فِي ذَلِكَ لأَكُونَ بِهَا مِنْ جُمْلَةِ السُّعَدَا .
+إِلَهِي بِحَقِّ جَمَالِكَ الَّذِي فَتَّتَ بِهِ أَكْبَادَ المُحِبِّينَ ، وَبِجَلالِكَ الَّذِي تَحَيَّرَتْ فِي عَظَمَتِهِ أَلبَابُ العَارِفِينَ ، إِلَهِي بِحَقِّ حَقِيقَتِكَ الَّتِي لا تُدْرِكُهَا الحَقَائِقُ ، وَبِسِرِّ سِرِّ سِرِّكَ الَّذِي لا تَفِي بِالإِفْصَاحِ عَنْ حَقِيقَتِهِ الرَّقَائِقُ ، إِلَهِي بِرُوحِ القُدُسِ قَدِّسْ سَرَائِرَنَا وَبِرُوحِ سَيِّدِنَا مُحَمَّدٍ صَلَّى اللهُ عَلَيْهِ وَسَلَّمَ خَلِّصْ مَعَارِفَنَا ، وَبِرُوحِ أَبِينَا آدَمَ اجْعَل أَرْوَاحَنَا سَابِحَاتٍ فِي عَوَالِمِ الجَبَرُوتِ ، وَاكْشِفْ لَهُمْ عَنْ حَضَائِرِ اللاهُوتِ . إِلَهِي بِالنُّورِ المُحَمَّدِيِّ الَّذِي رَفَعْتَ عَلَى كُلِّ رَفِيعٍ مَقَامَهُ ، وَضَرَبْتَ فَوْقِ خِزَانَةِ أَسْرَارِ أُلُوهِيَّتِكَ أَعْلامَهُ ، افْتَحْ لَنَا فَتْحَاً صَمَدَانِيَّاً وَعِلمَاً رَبَّانِيَّاً وَتَجَلِّيَاً رَحْمَانِيَّاً وَفَيْضَاً إِحْسَانِيَّاً .
+حَرْفُ التَّاءِ
+إِلَهِي تَوَلَّنِي بِالهِدَايَةِ وَالرِّعَايَةِ وَالحِمَايَةِ وَالكِفَايَةِ ، إِلَهِي تُبْ عَلَيَّ تَوْبَةً نَصُوحَاً لا أَنْقُضُ عَهْدَهَا أَبَدَا ً، وَاحْفَظْنِي فِي ذَلِكَ لأَكُونَ بِهَا مِنْ جُمْلَةِ السُّعَدَا .
 حَرْفُ الثَاءِ
-إِلَهِي ثَبِّتْنِي لِحَمْلِ أَسْرَارِكَ القُدْسِيَّةِ ، وَقَوِّنِي بِإِمْدَادٍ مِنْ عِنْدِكَ حَتَّى أَسِيرَ بِهِ إِلَى حَضَرَاتِكَ العَلِيَّةِ ، وَثَبِّتْ اللَّهُمَّ قَدَمَيَّ عَلَى صِرَاطِكَ المُسْتَقِيمِ ، وَطَرِيقِكَ القَوِيمِ .
+إِلَهِي ثَبِّتْنِي لِحَمْلِ أَسْرَارِكَ القُدْسِيَّةِ ، وَقَوِّنِي بِإِمْدَادٍ مِنْ عِنْدِكَ حَتَّى أَسِيرَ بِهِ إِلَى حَضَرَاتِكَ العَلِيَّةِ ، وَثَبِّتْ اللَّهُمَّ قَدَمَيَّ عَلَى صِرَاطِكَ المُسْتَقِيمِ ، وَطَرِيقِكَ القَوِيمِ .
 حَرْفُ الجِيمِ
-إِلَهِي جَلا لَنَا هَذَا الظَّلامُ عَنْ جَلالِكَ أَسْتَارَاً ، وَأَفْصَحَ الصُّبْحُ عَنْ بَدِيعِ جَمَالِكَ وَبِذَلِكَ اسْتِنَارَاً ، إِلَهِي جَمِّلنِي بِالأَوْصَافِ المَلَكِيَّةِ وَالأَفْعَالِ المَرْضِيَّةِ .
+إِلَهِي جَلا لَنَا هَذَا الظَّلامُ عَنْ جَلالِكَ أَسْتَارَاً ، وَأَفْصَحَ الصُّبْحُ عَنْ بَدِيعِ جَمَالِكَ وَبِذَلِكَ اسْتِنَارَاً ، إِلَهِي جَمِّلنِي بِالأَوْصَافِ المَلَكِيَّةِ وَالأَفْعَالِ المَرْضِيَّةِ .
 حَرْفُ الحَاءِ
-إِلَهِي حَلا لَنَا ذِكْرُكَ بِالأَسْحَارِ ، وَحُسْنَ تَخَضُّعِنَا عَلَى أَعْتَابِكَ يَا عَزِيزُ يَا جَبَّار ُ، إِلَهِي حُل بَيْنِي وَبَيْنَ مَنْ يُشْغِلنِي عَنْ شُغْلِي بِمُنَاجَاتِكَ ، وَأَفِضْ عَلَيَّ مِنَ الأَسْرَارِ الَّتِي خَبَّأَتْهَا فِي مَنِيعِ سُرَادِقَاتِكَ، إِلَهِي حُلَّ لَنَا إِزَارَ الأَسْرَارِ عَنْ عُلُومِ الأَنْوَارِ .
+إِلَهِي حَلا لَنَا ذِكْرُكَ بِالأَسْحَارِ ، وَحُسْنَ تَخَضُّعِنَا عَلَى أَعْتَابِكَ يَا عَزِيزُ يَا جَبَّار ُ، إِلَهِي حُل بَيْنِي وَبَيْنَ مَنْ يُشْغِلنِي عَنْ شُغْلِي بِمُنَاجَاتِكَ ، وَأَفِضْ عَلَيَّ مِنَ الأَسْرَارِ الَّتِي خَبَّأَتْهَا فِي مَنِيعِ سُرَادِقَاتِكَ، إِلَهِي حُلَّ لَنَا إِزَارَ الأَسْرَارِ عَنْ عُلُومِ الأَنْوَارِ .
 حَرْفُ الخَاءِ
-إِلَهِي خَطَفْتَ عُقُولَ العُشَّاقِ بِمَا أَشْهَدْتَهُمْ مِنْ سَنَاءِ أَنْوَارِكَ مَعَ وُجُودِ أَسْتَارِكَ ، فَكَيْفَ لَوْ كَشَفْتَ لَهُمْ عَنْ بَدِيعِ جَمَالِكَ وَرَفِيعِ جَلالِكَ ، إِلَهِي خُصَّنِي بِمَدَدِكَ السُّبُوحِيِّ لِيَحْيَى بِذَلِكَ لُبِّي وَرُوحِي .
-حَرْفُ الدَّالِ
-إِلَهِي دَاوِنِي بِدَوَاءٍ مِنْ عِنْدِكَ كَيْ يَشْتَفِيَ بِهِ أَلَمِيَ القَلبي ، وَأَصْلِحْ مِنِّي يَا مَوْلايَ ظَاهِرِي وَلُبِّي , إِلَهِي دُلَّنِي عَلَى مَنْ يَدُلَّنِي عَلَيْكَ وَأَوْصِلنِي يَا مَوْلايَ إِلَى مَنْ يُوَصِّلُنِي إِلَيْكَ .
-حَرْفُ الذَّالِ
-إِلَهِي ذَابَتْ قُلُوبُ العُشَّاقِ مِنْ فَرْطِ الغَرَامِ ، وَأَقْلَقَهُمْ إِلَيْكَ شَدِيدُ الوَجْدِ وَالهَُيَامِ ، فَتَعَطَّفْ عَلَيْهِمْ يَا عَطُوفُ يَا رَؤُوفُ يَا اللهُ يَا رَحْمَنُ يَا رَحِيمُ .
-حَرْفُ الرَّاءِ
-اللَّهُمَّ رَقِّقْ حِجَابَ بَشَرِّيَّتِي بِلَطَائِفِ إِسْعَافٍ مِنْ عِنْدِكَ ، لأشْهَدَ مَا انْطَوَتْ عَلَيْهِ مِنْ عَجَائِبِ قُدْسِكَ ، إِلَهِي رَدِّنِي بِرِدَاءٍ مِنْ عِنْدِكَ حَتَّى أَحْتَجِبَ بِهِ عَنْ وُصُولِ أَيْدِي الأَعْدَاءِ إِلَيّ.َ
-حَرْفُ الزَّايِ
-إِلَهِي زَيِّنْ ظَاهِرِي بِامْتِثَالِ مَا أَمَرْتَنِي بِهِ، وَنَهَيْتَنِي عَنْهُ ، وَزَيِّنْ سِرِّي بِالأَسْرَارِ وَعَنْ الأَغْيَارِ فَصُنْهُ
-حَرْفُ السِّينِ
-إِلَهِي سَلِّمْنَا مِنْ كُلِّ الأَسْوَا ، وَاكْفِنَا مِنْ جَمِيعِ البَلوَى وَطَهِّرْ أَسْرَارَنَا مِنَ الشَّكْوَى وَأَلسِنَتَنَا مِنَ الدَّعْوَى .
-حَرْفُ الشِّينِ
-إِلَهِي شَرِّفْ مَسَامِعَنَا فِي خِطَابِكَ ، وَفَهِّمْنَا أَسْرَارَ كِتَابِكَ ، وَقَرِّبْنَا مِنْ أَعْتَابِكَ وَامْنَحْنَا مِنْ لَذِيذِ شَرَابِكَ.
-حَرْفُ الصَّادِ
-إِلَهِي صَرِّفْنَا فِي عَوَالِمِ المُلكِ وَالمَلَكُوتِ ، وَهَيِّئْنَا لِقَبُولِ أَسْرَارِ الجَبَرُوتِ ، وَأَفِضْ عَلَيْنَا مِنْ رَقَائِقِ دَقَائِقِ اللاهُوتِ .
-حَرْفُ الضَّادِ
-إِلَهِي ضُرِبَتْ أَعْنَاقُ الطَّالِبِينَ دُونَ الوُصُولِ إِلَى سَاحَاتِ حَضَرَاتِكَ العَلِيَّةِ ، وَتَلَذَّذُوا بِذَلِكَ فَطَابُوا بِعِيشِتِهِمُ المَرْضِيَّةِ .
-حَرْفُ الطَّاءِ
-إِلَهِي طَهِّرْ سَرِيرَتِي مِنْ كُلِّ شَيْءٍ يُبْعِدُنِي عَنْ حَضَرَاتِكَ، وَيَقْطَعُنِي عَنْ لَذِيذِ مُوَاصَلاتِكَ .
-حَرْفُ الظَّاءِ
-إِلَهِي ظَمَؤُنَا إِلَى شُرْبِ حُمَيَّاكَ لا يَخْفَى ، وَلَهِيبُ قُلُوبِنَا إِلَى مُشَاهَدَةِ جَمَالِكَ لا يُطْفَى .
+إِلَهِي خَطَفْتَ عُقُولَ العُشَّاقِ بِمَا أَشْهَدْتَهُمْ مِنْ سَنَاءِ أَنْوَارِكَ مَعَ وُجُودِ أَسْتَارِكَ ، فَكَيْفَ لَوْ كَشَفْتَ لَهُمْ عَنْ بَدِيعِ جَمَالِكَ وَرَفِيعِ جَلالِكَ ، إِلَهِي خُصَّنِي بِمَدَدِكَ السُّبُوحِيِّ لِيَحْيَى بِذَلِكَ لُبِّي وَرُوحِي .
+حَرْفُ الدَّالِ
+إِلَهِي دَاوِنِي بِدَوَاءٍ مِنْ عِنْدِكَ كَيْ يَشْتَفِيَ بِهِ أَلَمِيَ القَلبي ، وَأَصْلِحْ مِنِّي يَا مَوْلايَ ظَاهِرِي وَلُبِّي , إِلَهِي دُلَّنِي عَلَى مَنْ يَدُلَّنِي عَلَيْكَ وَأَوْصِلنِي يَا مَوْلايَ إِلَى مَنْ يُوَصِّلُنِي إِلَيْكَ .
+حَرْفُ الذَّالِ
+إِلَهِي ذَابَتْ قُلُوبُ العُشَّاقِ مِنْ فَرْطِ الغَرَامِ ، وَأَقْلَقَهُمْ إِلَيْكَ شَدِيدُ الوَجْدِ وَالهَُيَامِ ، فَتَعَطَّفْ عَلَيْهِمْ يَا عَطُوفُ يَا رَؤُوفُ يَا اللهُ يَا رَحْمَنُ يَا رَحِيمُ .
+حَرْفُ الرَّاءِ
+اللَّهُمَّ رَقِّقْ حِجَابَ بَشَرِّيَّتِي بِلَطَائِفِ إِسْعَافٍ مِنْ عِنْدِكَ ، لأشْهَدَ مَا انْطَوَتْ عَلَيْهِ مِنْ عَجَائِبِ قُدْسِكَ ، إِلَهِي رَدِّنِي بِرِدَاءٍ مِنْ عِنْدِكَ حَتَّى أَحْتَجِبَ بِهِ عَنْ وُصُولِ أَيْدِي الأَعْدَاءِ إِلَيّ.َ
+حَرْفُ الزَّايِ
+إِلَهِي زَيِّنْ ظَاهِرِي بِامْتِثَالِ مَا أَمَرْتَنِي بِهِ، وَنَهَيْتَنِي عَنْهُ ، وَزَيِّنْ سِرِّي بِالأَسْرَارِ وَعَنْ الأَغْيَارِ فَصُنْهُ
+حَرْفُ السِّينِ
+إِلَهِي سَلِّمْنَا مِنْ كُلِّ الأَسْوَا ، وَاكْفِنَا مِنْ جَمِيعِ البَلوَى وَطَهِّرْ أَسْرَارَنَا مِنَ الشَّكْوَى وَأَلسِنَتَنَا مِنَ الدَّعْوَى .
+حَرْفُ الشِّينِ
+إِلَهِي شَرِّفْ مَسَامِعَنَا فِي خِطَابِكَ ، وَفَهِّمْنَا أَسْرَارَ كِتَابِكَ ، وَقَرِّبْنَا مِنْ أَعْتَابِكَ وَامْنَحْنَا مِنْ لَذِيذِ شَرَابِكَ.
+حَرْفُ الصَّادِ
+إِلَهِي صَرِّفْنَا فِي عَوَالِمِ المُلكِ وَالمَلَكُوتِ ، وَهَيِّئْنَا لِقَبُولِ أَسْرَارِ الجَبَرُوتِ ، وَأَفِضْ عَلَيْنَا مِنْ رَقَائِقِ دَقَائِقِ اللاهُوتِ .
+حَرْفُ الضَّادِ
+إِلَهِي ضُرِبَتْ أَعْنَاقُ الطَّالِبِينَ دُونَ الوُصُولِ إِلَى سَاحَاتِ حَضَرَاتِكَ العَلِيَّةِ ، وَتَلَذَّذُوا بِذَلِكَ فَطَابُوا بِعِيشِتِهِمُ المَرْضِيَّةِ .
+حَرْفُ الطَّاءِ
+إِلَهِي طَهِّرْ سَرِيرَتِي مِنْ كُلِّ شَيْءٍ يُبْعِدُنِي عَنْ حَضَرَاتِكَ، وَيَقْطَعُنِي عَنْ لَذِيذِ مُوَاصَلاتِكَ .
+حَرْفُ الظَّاءِ
+إِلَهِي ظَمَؤُنَا إِلَى شُرْبِ حُمَيَّاكَ لا يَخْفَى ، وَلَهِيبُ قُلُوبِنَا إِلَى مُشَاهَدَةِ جَمَالِكَ لا يُطْفَى .
 حَرْفُ العَيْنِ
-إِلَهِي عَرِّفْنِي حَقَائِقَ أَسْمَائِكَ الحُسْنَى ، وَأَطْلِعْنِي عَلَى رَقَائِقِ دَقَائِقِ مَعَارِفِكَ الحَسْنَا، وَأَشْهِدْنِي خَفِيَّ تَجَلِّيَاتِ صِفَاتِكَ ، وَكُنُوزَ أَسْرَارِ ذَاتِكَ .
+إِلَهِي عَرِّفْنِي حَقَائِقَ أَسْمَائِكَ الحُسْنَى ، وَأَطْلِعْنِي عَلَى رَقَائِقِ دَقَائِقِ مَعَارِفِكَ الحَسْنَا، وَأَشْهِدْنِي خَفِيَّ تَجَلِّيَاتِ صِفَاتِكَ ، وَكُنُوزَ أَسْرَارِ ذَاتِكَ .
 حَرْفُ الغَيْنِ
-إِلَهِي غِنَاكَ مُطْلَقٌ وَغِنَانَا مُقَيَّدٌ ، فَنَسْأَلُكَ بِغِنَاكَ المُطْلَقِ أَنْ تُغْنِنَا بِكَ غِنَىً لا فَقْرَ بَعْدَهُ إِلا إِلَيْكَ ، يَا غَنِيُّ يَا حَمِيدُ يَا مُبْدِئُ يَا مُعِيدُ يَا رَحِيمُ يَا وَدُودُ يَا اللهُ يَا رَحْمَنُ يَا رَحِيمُ.
+إِلَهِي غِنَاكَ مُطْلَقٌ وَغِنَانَا مُقَيَّدٌ ، فَنَسْأَلُكَ بِغِنَاكَ المُطْلَقِ أَنْ تُغْنِنَا بِكَ غِنَىً لا فَقْرَ بَعْدَهُ إِلا إِلَيْكَ ، يَا غَنِيُّ يَا حَمِيدُ يَا مُبْدِئُ يَا مُعِيدُ يَا رَحِيمُ يَا وَدُودُ يَا اللهُ يَا رَحْمَنُ يَا رَحِيمُ.
 حَرْفُ الفَاءِ
-اللَّهُمَّ إِنَّكَ فَتَحْتَ أَقْفَالَ قُلُوبِ أَهْلِ الاخْتِصَاصِ ، وَخَلَّصْتَهُمْ مِنْ قَيْدِ الأَقْفَاصِ ، فَخَلِّصْ سَرَائِرَنَا مِنَ التَّعَلُّقِ بِمُلاحَظَةِ سِوَاكَ ، وأفْنِنَا عَنْ شُهُودِ نُفُوسِنَا حَتَّى لا نَشْهَدَ إِلا عُلاكَ .
+اللَّهُمَّ إِنَّكَ فَتَحْتَ أَقْفَالَ قُلُوبِ أَهْلِ الاخْتِصَاصِ ، وَخَلَّصْتَهُمْ مِنْ قَيْدِ الأَقْفَاصِ ، فَخَلِّصْ سَرَائِرَنَا مِنَ التَّعَلُّقِ بِمُلاحَظَةِ سِوَاكَ ، وأفْنِنَا عَنْ شُهُودِ نُفُوسِنَا حَتَّى لا نَشْهَدَ إِلا عُلاكَ .
 حَرْفُ القَافِ
-إِلَهِي قَدْ جِئْنَاكَ بِجَمْعِنَا مُتَوَسِّلِينَ إِلَيْكَ فِي قَبُولِنَا مُتَشَفِّعِينَ إِلَيْكَ فِي غُفْرَانِ ذُنُوبِنَا ، فَلا تَرُدَّنَا .
+إِلَهِي قَدْ جِئْنَاكَ بِجَمْعِنَا مُتَوَسِّلِينَ إِلَيْكَ فِي قَبُولِنَا مُتَشَفِّعِينَ إِلَيْكَ فِي غُفْرَانِ ذُنُوبِنَا ، فَلا تَرُدَّنَا .
 حَرْفُ الكَافِ
-ِإَلِهي كَفَانَا شَرَفَاً أَنَّنَا خُدَّامُ حَضَرَاتِكَ ، وَعَبِيدٌ لِعَظِيمِ رَفِيعِ ذَاتِكَ .
+ِإَلِهي كَفَانَا شَرَفَاً أَنَّنَا خُدَّامُ حَضَرَاتِكَ ، وَعَبِيدٌ لِعَظِيمِ رَفِيعِ ذَاتِكَ .
 حَرْفُ اللامِ
-إِلَهِي لَوْ أَرَدْنَا الإِعْرَاضَ عَنْكَ مَا وَجَدْنَا لَنَا سِوَاكَ ، فَكَيْفَ بَعْدَ ذَلِكَ نُعْرِضُ عَنْكَ . إِلَهِي لُذْنَا بِجَنَابِكَ خَاضِعِينَ ، وَعَلَى أَعْتَابِكَ وَاقِعِينَ ، فَلا تَرُدَّنَا يَا عَلِيمُ يَا حَكِيمُ .
+إِلَهِي لَوْ أَرَدْنَا الإِعْرَاضَ عَنْكَ مَا وَجَدْنَا لَنَا سِوَاكَ ، فَكَيْفَ بَعْدَ ذَلِكَ نُعْرِضُ عَنْكَ . إِلَهِي لُذْنَا بِجَنَابِكَ خَاضِعِينَ ، وَعَلَى أَعْتَابِكَ وَاقِعِينَ ، فَلا تَرُدَّنَا يَا عَلِيمُ يَا حَكِيمُ .
 حَرْفُ المِيم
-إِلَهِي مَحِّصْ ذُنُوبَنَا بِظُهُورِ آثَارِ اسْمِكَ الغَفَّارِ ، وَامْحُ مِنْ دِيوَانِ الأَشْقِيَاءِ شَقِيَّنَاً وَاكْتُبْهُ عِنْدَكَ فِي دِيوَانِ الأَخْيَارِ.
-حَرْفُ النُّونِ:
-إِلَهِي نَحْنُ الأَسَارَى فَمِنْ قُيُودِنَا فَأَطْلِقْنَا ، وَنَحْنُ العَبِيدُ فَمَنْ سِوَاكَ فَخِلِّصْنَا وَأَعْتِقْنَا ، يَا سَنَدَ المُسْتَنِدِينَ ، وَرَجَاءَ المُسْتَجِيرِينَ ، إلَهَنَا وَإِلَهَ كُلِّ مَأْلُوهٍ وَرَبَّ كُلِّ مَرْبُوبٍ ، وَسَيِّدَ كُلِّ ذِي سِيَادَةٍ , وَغَايَةَ مَطْلَبِ كًلِّ طَالِبٍ ، نَسْأَلُكَ بِأَهْلِ عِنَايَتِكَ الَّذِينَ اخْتَطَفَتْهُمْ يَدُ جَذَبَاتِكَ ، وَأَدْهَشَتْهُمْ سَنَاءُ تَجَلِّيَاتِكَ , فَتَاهُوا بِعَجِيبِ كَمَالاتِكَ ، أَنْ تَسْقِيَنَا شَرْبَةً مِنْ صَافِي شَرَابِ أَهْلِ مَوَدَّتِكَ الرَّبَّانِيُّونَ ، وَعَرَائِسِ أَهْلِ حَضْرَتِكَ الَّذِينَ هُمْ فِي جَمَالِكَ مُهَيَّمُونَ .
+إِلَهِي مَحِّصْ ذُنُوبَنَا بِظُهُورِ آثَارِ اسْمِكَ الغَفَّارِ ، وَامْحُ مِنْ دِيوَانِ الأَشْقِيَاءِ شَقِيَّنَاً وَاكْتُبْهُ عِنْدَكَ فِي دِيوَانِ الأَخْيَارِ.
+حَرْفُ النُّونِ:
+إِلَهِي نَحْنُ الأَسَارَى فَمِنْ قُيُودِنَا فَأَطْلِقْنَا ، وَنَحْنُ العَبِيدُ فَمَنْ سِوَاكَ فَخِلِّصْنَا وَأَعْتِقْنَا ، يَا سَنَدَ المُسْتَنِدِينَ ، وَرَجَاءَ المُسْتَجِيرِينَ ، إلَهَنَا وَإِلَهَ كُلِّ مَأْلُوهٍ وَرَبَّ كُلِّ مَرْبُوبٍ ، وَسَيِّدَ كُلِّ ذِي سِيَادَةٍ , وَغَايَةَ مَطْلَبِ كًلِّ طَالِبٍ ، نَسْأَلُكَ بِأَهْلِ عِنَايَتِكَ الَّذِينَ اخْتَطَفَتْهُمْ يَدُ جَذَبَاتِكَ ، وَأَدْهَشَتْهُمْ سَنَاءُ تَجَلِّيَاتِكَ , فَتَاهُوا بِعَجِيبِ كَمَالاتِكَ ، أَنْ تَسْقِيَنَا شَرْبَةً مِنْ صَافِي شَرَابِ أَهْلِ مَوَدَّتِكَ الرَّبَّانِيُّونَ ، وَعَرَائِسِ أَهْلِ حَضْرَتِكَ الَّذِينَ هُمْ فِي جَمَالِكَ مُهَيَّمُونَ .
 حَرْفُ الهَاءِ
-إِلَهِي هَذِهِ أُوَيْقَاتُ تَجَلِّيَّاتِكَ وَ مَحَلُّ تَنَزُّلاتِكَ .
+إِلَهِي هَذِهِ أُوَيْقَاتُ تَجَلِّيَّاتِكَ وَ مَحَلُّ تَنَزُّلاتِكَ .
 حَرْفُ الوَاوِ
-وَنَحْنُ عَبِيدُكَ الوَاقِعُونَ عَلَى أَعْتَابِكَ الخَاضِعُونَ لِعِزَّةِ جَنَابِكَ ، الطَّامِعُونَ فِي سَنِيِّ بَهِيِّ شَرَابِكَ فَلا تَرُدَّنَا عَلَى أَعْقَابِنَا بَعْدَ مَا قَصَدْنَاكَ مُتَذَلِّلِينَ ، يَا اللهُ يَا رَحْمَنُ يَا رَحِيمُ .
+وَنَحْنُ عَبِيدُكَ الوَاقِعُونَ عَلَى أَعْتَابِكَ الخَاضِعُونَ لِعِزَّةِ جَنَابِكَ ، الطَّامِعُونَ فِي سَنِيِّ بَهِيِّ شَرَابِكَ فَلا تَرُدَّنَا عَلَى أَعْقَابِنَا بَعْدَ مَا قَصَدْنَاكَ مُتَذَلِّلِينَ ، يَا اللهُ يَا رَحْمَنُ يَا رَحِيمُ .
 حَرْفُ اللامِ أَلِفٍ
-اللَّهُمَّ لا نَقْصِدُ إِلا إِيَّاكَ ، وَلا نَتَشَوَّقُ إِلا لِشُرْبِ شَرَابِكَ وَبَدِيعِ حُمَيَّاكَ .
+اللَّهُمَّ لا نَقْصِدُ إِلا إِيَّاكَ ، وَلا نَتَشَوَّقُ إِلا لِشُرْبِ شَرَابِكَ وَبَدِيعِ حُمَيَّاكَ .
 حَرْفُ اليَاءِ
-اللَّهُمَّ يَا وَاصِلَ المُنْقَطِعِينَ أَوْصِلنَا إِلَيْكَ وَلا تَقْطَعْنَا بِالأَغْيَارِ عَنْكَ بِرَحْمَتِكَ يَا أَرْحَمَ الرَّاحِمِينَ .
+اللَّهُمَّ يَا وَاصِلَ المُنْقَطِعِينَ أَوْصِلنَا إِلَيْكَ وَلا تَقْطَعْنَا بِالأَغْيَارِ عَنْكَ بِرَحْمَتِكَ يَا أَرْحَمَ الرَّاحِمِينَ .
 يَا اللهُ عَدَدَ (66).
 يَا وَاجِدُ ( عَدَدَ 14 )
 يَا مَاجِدُ يَا وَاحِدُ يَا أَحَدُ يَا فَرْدُ يَا صَمَدُ ، لا إِلَهَ إِلا أَنْتَ بِرَحْمَتِكَ نَسْتَغِيثُ فَأَغِثْنَا.
 يَا مُغِيثُ أَغِثْنَا (3)
 الغَوْثَ الغَوْثَ مِنْ مَقْتِكَ وَطَرْدِكَ وَبُعْدِكَ
-يَا مُجِيرُ أَجِرْنَا (3) مِنْ خِزْيِكَ وَعِقَابِكَ وَمِنْ شَرِّ خَلقِكَ أَجْمَعِينَ .
+يَا مُجِيرُ أَجِرْنَا (3) مِنْ خِزْيِكَ وَعِقَابِكَ وَمِنْ شَرِّ خَلقِكَ أَجْمَعِينَ .
 يَا لَطِيفُ الطُفْ بِنَا بِلُطْفِكَ.
 يَا لَطِيفُ ( 129)
-اللهُ لَطِيفٌ بِعِبَادِهِ يَرْزُقُ مَنْ يَشَاءُ وَهُوَ القَوِيُّ العزيز   (10مَرَّاتٍ )
-اللَّهُمَّ يَا لَطِيفَاً بِخَلقِهِ يَا عَلِيمَاً بِخَلقِهِ يَا خَبِيرَاً بِخَلقِهِ الطُفْ بِنَا يَا لَطِيفُ يَا عَلِيمُ يَا خَبِيرُ (10 مَرَّاتٍ )
-يَا لَطِيفُ عَامِلنَا بِخَفِيِّ وَفِيِّ بَهِيِّ سَنِيِّ عَلِيِّ لُطْفِكَ يَا كَافِيَ المُهْمَّاتِ وَالمُلِمَّاتِ اكْفِنَا مَا أَهَمَّنَا وَالمُسْلِمِينَ وَالحَاضِرِينَ وَالغَائِبِينَ وَالمُنْتَقِلِينَ مِنْ إِخْوَانِنَا هُمُومَ الدُّنْيَا وَالآخِرَةِ يَا كَرِيمُ يَا اللهُ يَا رَحْمَنُ يَا رَحِيمُ .
-اللَّهُمَّ أَسْكِنْ وُدَّكَ فِي قُلُوبِنَا ، وَوُدَّنَا فِي قُلُوبِ أَحْبَابِكَ المُصْطَفِينَ ، وَأَهْلِ جَنَابِكَ المُقَرَّبِينَ.
+اللهُ لَطِيفٌ بِعِبَادِهِ يَرْزُقُ مَنْ يَشَاءُ وَهُوَ القَوِيُّ العزيز   (10مَرَّاتٍ )
+اللَّهُمَّ يَا لَطِيفَاً بِخَلقِهِ يَا عَلِيمَاً بِخَلقِهِ يَا خَبِيرَاً بِخَلقِهِ الطُفْ بِنَا يَا لَطِيفُ يَا عَلِيمُ يَا خَبِيرُ (10 مَرَّاتٍ )
+يَا لَطِيفُ عَامِلنَا بِخَفِيِّ وَفِيِّ بَهِيِّ سَنِيِّ عَلِيِّ لُطْفِكَ يَا كَافِيَ المُهْمَّاتِ وَالمُلِمَّاتِ اكْفِنَا مَا أَهَمَّنَا وَالمُسْلِمِينَ وَالحَاضِرِينَ وَالغَائِبِينَ وَالمُنْتَقِلِينَ مِنْ إِخْوَانِنَا هُمُومَ الدُّنْيَا وَالآخِرَةِ يَا كَرِيمُ يَا اللهُ يَا رَحْمَنُ يَا رَحِيمُ .
+اللَّهُمَّ أَسْكِنْ وُدَّكَ فِي قُلُوبِنَا ، وَوُدَّنَا فِي قُلُوبِ أَحْبَابِكَ المُصْطَفِينَ ، وَأَهْلِ جَنَابِكَ المُقَرَّبِينَ.
 يَا وَدُودُ ( 100)
-(يَا ذَا العَرْشِ المَجِيدِ ، يَا فَعَّالٌ لِمَا يُرِيدُ ، نَسْأَلُكَ بِحُبِّكَ السَّابِقِ فِي (يُحِبُّهُمْ)، وَبِحُبِّنَا اللاحِقِ فِي(يُحِبُّونَهُ)، أَنْ تَجْعَلَ مَحَبَّتَكَ العُظْمَى ، وَوُدَّكَ الأَسْنَى ، شِعَارَنَا، وَدِثَارَنَا، يَا حَبِيبَ المُحِبِّينَ ، يَا أَنِيسَ المُنْقَطِعِينَ ، يَا جَلِيسَ الذَّاكِرِينَ ، وَيَا مَنْ هُوَ عِنْدَ قُلَوبِ المُنْكَسِرِينَ ، أَدِمْ لَنَا شُهَودَكَ أَجْمَعِينَ .
-ثُمَّ يَقُولُ التَّالِي بِصَوْتٍ حَزِينٍ مَادَّاً صَوْتَهُ خَافِضَاً رَأْسَهً:
-يَا غَنِيُّ ، أَنْتَ الغَنِيُّ ، وَأَنَا الفَقِيرً ، مَنْ لِلفَقِيرِ سِوَاكَ ، يَا عَزِيزُ ، أَنْتَ العَزِيزُ ، وَأَنَا الذَّلِيلُ , مَنْ لِلذَّلِيلِ سِوَاكَ ، يَا قَوِيُّ ، أَنْتَ القْوَيُّ ، وَأَنَا الضَّعِيفُ ، مَنْ لِلضَّعِيفِ سِوَاكَ ، يَا قَادِرُ ، أَنْتَ القَادِرُ ، وَأَنَا العَاجِزُ مَنْ لِلعَاجِزِ سِوَاكَ .
-ثُمَّ يَرْفَعُ رَأْسَهُ ويقول :
-لا إِلَهَ إِلا اللهُ مُحَمَّدٌ رَسُولُ اللهِ ( ثَلاثَاً ) صَلَّى اللهُ عَلَيْهِ وَعَلَى آلِهِ وَأَصْحَابِهِ وَأَزْوَاجِهِ وَأَهْلِ بَيْتِهِ بُكْرَةً وَأَصِيلا ، وَصَلِّ وَسَلِّمْ اللَّهُمَّ عَلَيْهِ وَعَلَى أَبِيهِ إِبْرَاهِيمَ خَلِيلِكَ , وَدَاوُدَ خَلِيفَتِكَ ، وَمُوسَى كَلِيمِك , وَعِيسَى , رُوحِكَ وَإِسْمَاعِيلَ ذَبِيحِكَ وَعَلَى جَمِيعِ إِخْوَانِهِمْ مِنَ الأَنْبِيَاءِ وَالمُرْسَلِينَ ، وَالحَمْدُ للهِ رَبِّ العَالَمِينَ
+(يَا ذَا العَرْشِ المَجِيدِ ، يَا فَعَّالٌ لِمَا يُرِيدُ ، نَسْأَلُكَ بِحُبِّكَ السَّابِقِ فِي (يُحِبُّهُمْ)، وَبِحُبِّنَا اللاحِقِ فِي(يُحِبُّونَهُ)، أَنْ تَجْعَلَ مَحَبَّتَكَ العُظْمَى ، وَوُدَّكَ الأَسْنَى ، شِعَارَنَا، وَدِثَارَنَا، يَا حَبِيبَ المُحِبِّينَ ، يَا أَنِيسَ المُنْقَطِعِينَ ، يَا جَلِيسَ الذَّاكِرِينَ ، وَيَا مَنْ هُوَ عِنْدَ قُلَوبِ المُنْكَسِرِينَ ، أَدِمْ لَنَا شُهَودَكَ أَجْمَعِينَ .
+ثُمَّ يَقُولُ التَّالِي بِصَوْتٍ حَزِينٍ مَادَّاً صَوْتَهُ خَافِضَاً رَأْسَهً:
+يَا غَنِيُّ ، أَنْتَ الغَنِيُّ ، وَأَنَا الفَقِيرً ، مَنْ لِلفَقِيرِ سِوَاكَ ، يَا عَزِيزُ ، أَنْتَ العَزِيزُ ، وَأَنَا الذَّلِيلُ , مَنْ لِلذَّلِيلِ سِوَاكَ ، يَا قَوِيُّ ، أَنْتَ القْوَيُّ ، وَأَنَا الضَّعِيفُ ، مَنْ لِلضَّعِيفِ سِوَاكَ ، يَا قَادِرُ ، أَنْتَ القَادِرُ ، وَأَنَا العَاجِزُ مَنْ لِلعَاجِزِ سِوَاكَ .
+ثُمَّ يَرْفَعُ رَأْسَهُ ويقول :
+لا إِلَهَ إِلا اللهُ مُحَمَّدٌ رَسُولُ اللهِ ( ثَلاثَاً ) صَلَّى اللهُ عَلَيْهِ وَعَلَى آلِهِ وَأَصْحَابِهِ وَأَزْوَاجِهِ وَأَهْلِ بَيْتِهِ بُكْرَةً وَأَصِيلا ، وَصَلِّ وَسَلِّمْ اللَّهُمَّ عَلَيْهِ وَعَلَى أَبِيهِ إِبْرَاهِيمَ خَلِيلِكَ , وَدَاوُدَ خَلِيفَتِكَ ، وَمُوسَى كَلِيمِك , وَعِيسَى , رُوحِكَ وَإِسْمَاعِيلَ ذَبِيحِكَ وَعَلَى جَمِيعِ إِخْوَانِهِمْ مِنَ الأَنْبِيَاءِ وَالمُرْسَلِينَ ، وَالحَمْدُ للهِ رَبِّ العَالَمِينَ
 ثم يقرأ الميمية''';
 
 const String saharMimiyyaText = r'''الْقَصِيدَةُ الْمِيمِيَّة
@@ -7169,7 +7747,8 @@ const String saharMimiyyaText = r'''الْقَصِيدَةُ الْمِيمِي�
 const String saharSalatText = r'''الصَّلاةُ عَلَى النَّبِيِّ
 اللَّهُمَّ صَلِّ وَسَلِّمْ وَبَارِكْ عَلَى مَنْ تَشَرَّفَتْ بِهِ جَمِيعُ الأكْوَانِ ، وَصَلِّ وَسَلِّمْ وَبَارِكْ عَلَى سَيِّدِنَا مُحَمَّدٍ الَّذِي أَظْهَرْتَ بِهِ مَعَالِمَ العِرْفَانِ ، وَصَلِّ وَسَلِّمْ وَبَارِكْ عَلَى سَيِّدِنَا مُحَمَّدٍ الَّذِي أَوْضَحَ دَقَائِقَ القُرْآنِ ، وَصَلِّ وَسَلِّمْ وَبَارِكْ عَلَى عَيْنِ الأَعْيَانِ وَالسَّبَبِ فِي وُجُودِ كُلِّ إِنْسَانٍ ، وَصَلِّ وَسَلِّمْ وَبَارِكْ عَلَى مَنْ شَيَّدَ أَرْكَانَ الشَّرِيعَةِ لِلعَالَمِينَ ، وَأَوْضَحَ أَفْعَالَ الطَّرِيقَةِ لِلسَّالِكِينَ ، وَرَمَزَ فِي عُلُومِ الحَقِيقَةِ لِلعَارِفِينَ ، فَصَلِّ اللَّهُمَّ عَلَيْهِ صَلاةً تَلِيقُ بِجَنَابِهِ الشَّرِيفِ ، وَمَقَامِهِ المُنِيفِ ، وَسَلِّمْ تَسْلِيمَاً دَائِمَاً يَا اللهُ يَا رَحْمَنُ يَا رَحِيمُ .
 اللَّهُمَّ صَلِّ وَسَلِّمْ وَبَارِكْ عَلَى سَيِّدِنَا مُحَمَّدٍ الَّذِي زَيَّنَ مَقَاصِيرَ القُلُوبِ ، وَأَظْهَرَ سَرَائِرَ الغُيُوبِ ، بَابِ كُلِّ طَالِبٍ وَدَلِيلِ كُلِّ مَحْجُوبٍ ، فَصَلِّ وَسَلِّمْ اللَّهُمَّ عَلَيْهِ مَا طَلَعَتْ شَمْسُ الأَكْوَانِ عَلَى الوُجُودِ ، وَصَلِّ وَسَلِّمْ وَبَارِكْ عَلَى مَنْ أَفَاضَ عَلَيْنَا بِإِمْدَادِهِ سَحَائِبِ الجُودِ ، يَا اللهُ يَا رَحْمَنُ يَا رَحِيمُ .
-"اللَّهُمَّ صَلِّ وَسَلِّمْ وَبَارِكْ عَلَى سَيِّدِنَا مُحَمَّدٍ صَلاةً تُدْنِي بَعِيدَنَا إِلَى الحَضَرَاتِ الرَّبَّانِيَّةِ ، وَتَذْهَبُ بِقَرِيبِنَا إِلَى مَا لا نِهَايَةَ لَهُ مِنْ المَقَامَاتِ الإِحْسَانِيَّة. فَصَلِّ وَسَلِّمْ اللَّهُمَّ عَلَيْهِ صَلاةَ تَنْشَرِحُ بِهَا الصُّدُورُ ، وَتَهُونُ بِهَا الأُمُورُ ، وَتَنْكَشِفُ بِهَا السُّتُورُ ، وَسَلِّمْ تَسْلِيمَاً كَثِيرَاً إِلَى يَوْمِ الدِّينِ , آمين" (7 مرات)
+"اللَّهُمَّ صَلِّ وَسَلِّمْ وَبَارِكْ عَلَى سَيِّدِنَا مُحَمَّدٍ صَلاةً تُدْنِي بَعِيدَنَا إِلَى الحَضَرَاتِ الرَّبَّانِيَّةِ ، وَتَذْهَبُ بِقَرِيبِنَا إِلَى مَا لا نِهَايَةَ لَهُ مِنْ المَقَامَاتِ الإِحْسَانِيَّة.
+فَصَلِّ وَسَلِّمْ اللَّهُمَّ عَلَيْهِ صَلاةَ تَنْشَرِحُ بِهَا الصُّدُورُ ، وَتَهُونُ بِهَا الأُمُورُ ، وَتَنْكَشِفُ بِهَا السُّتُورُ ، وَسَلِّمْ تَسْلِيمَاً كَثِيرَاً إِلَى يَوْمِ الدِّينِ , آمين" (7 مرات)
 دَعْوَاهُمْ فِيهَا سُبْحَانَكَ اللَّهُمَّ وَتَحِيَّتُهُمْ فِيهَا سَلامٌ ، وَآخِرُ دَعْوَاهُمْ أَنِ الحَمْدُ للهِ رَبِّ العَالَمِينَ .
 ثُمَّ يَقْرَأُ الفَاتِحَةَ لِحَضْرَتِهِ صَلَّى اللهُ عَلَيْهِ وَسَلّمْ وَلأَصْحَابِهِ وَآلِ بَيْتِهِ الكِرَامِ وَلأَهْلِ اللهِ جَمِيعَاً وَلِمُنْشِئِ هَذَا الوِرْدِ الشَّرِيفِ , ومشايخه وأهل الطريقة جميعا.
 ثم يشرع في القصيدة المنبهجة''';
@@ -7278,4 +7857,4 @@ const String saharMunbahijaText = r'''الْمُنَبِّهَجَة
 
 const String saharKhatmText = r'''خَتْمُ الْوِرْدِ
 اللَّهُمَّ صَلِّ وَسَلِّمْ عَلَى سَيِّدِنَا مُحَمَّدٍ فِي الْأَوَّلِينَ ، وَصَلِّ وَسَلِّمْ عَلَى سَيِّدِنَا مُحَمَّدٍ فِي الْآخِرِينَ ، وَصَلِّ وَسَلِّمْ عَلَى سَيِّدِنَا مُحَمَّدٍ فِي كُلِّ وَقْتٍ وَحِينٍ ، وَصَلِّ وَسَلِّمْ عَلَى سَيِّدِنَا مُحَمَّدٍ فِي الْمَلَإِ الْأَعْلَى إِلَى يَوْمِ الدِّينِ ، وَصَلِّ وَسَلِّمْ عَلَى جَمِيعِ الْأَنْبِيَاءِ وَالْمُرْسَلِينَ ، وَعَلَى الْمَلَائِكَةِ الْمُقَرَّبِينَ ، وَعَلَى عِبَادِ اللَّهِ الصَّالِحِينَ مِنْ أَهْلِ السَّمَوَاتِ وَأَهْلِ الْأَرَضِينَ ، وَرَضِيَ اللَّهُ تَبَارَكَ وَتَعَالَى عَنْ سَادَاتِنَا ذَوِي الْقَدْرِ الْجَلِيِّ أَبِي بَكْرٍ ، وَعُمَرَ ، وَعُثْمَانَ ، وَعَلِيٍّ ، وَعَنْ سَائِرِ أَصْحَابِ رَسُولِ اللَّهِ أَجْمَعِينَ ، وَعَنِ التَّابِعِينَ لَهُمْ بِإِحْسَانٍ إِلَى يَوْمِ الدِّينِ ، احْشُرْنَا وَارْحَمْنَا مَعَهُمْ بِرَحْمَتِكَ يَا أَرْحَمَ الرَّاحِمِينَ يَا اللَّهُ ، يَا حَيُّ يَا قَيُّومُ ، لَا إِلَهَ إِلَّا أَنْتَ يَا اللَّهُ ، يَا رَبَّنَا يَا وَاسِعَ الْمَغْفِرَةِ يَا أَرْحَمَ الرَّاحِمِينَ اللَّهُمَّ آمِينَ .
-ثُمَّ يَذْكُرُ ( لَا إِلَهَ لَا اللَّهُ ) حَتَّى يَطْلُعَ الْفَجْرُ وَيَخْتِمُ بِالْفَاتِحَةِ وَيُهْدِي ثَوَابَهَا لِمُنْشِئِ الْوِرْدِ وَلِأَهْلِ سِلْسِلَةِ الطَّرِيقِ''';
+ثُمَّ يَذْكُرُ ( لَا إِلَهَ إِلَّا اللَّهُ ) حَتَّى يَطْلُعَ الْفَجْرُ وَيَخْتِمُ بِالْفَاتِحَةِ وَيُهْدِي ثَوَابَهَا لِمُنْشِئِ الْوِرْدِ وَلِأَهْلِ سِلْسِلَةِ الطَّرِيقِ''';
