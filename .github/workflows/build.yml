@@ -8,12 +8,13 @@ jobs:
       - uses: actions/checkout@v4
       - name: Arrange files
         run: |
-          mkdir -p lib assets/books assets/indexes assets/texts assets/icon
+          mkdir -p lib assets/books assets/indexes assets/texts assets/icon assets/audio
           mv main.dart lib/
           mv awrad.pdf assets/books/
           mv fhris.txt assets/indexes/
           mv musabbaat.txt salawat_dardiriyya.txt manzuma.txt assets/texts/
           mv app_icon.png assets/icon/
+          mv sahar_wird.m4a assets/audio/
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -24,6 +25,13 @@ jobs:
           cache: true
       - run: flutter create --platforms=android --project-name al_tariqa_al_khalwatiya_al_bakriya --org com.khalwatiya.bakriya .
       - run: rm -rf test
+      - name: Add audio package and asset folder
+        run: |
+          flutter pub add just_audio
+          if ! grep -q "assets/audio/" pubspec.yaml; then
+            sed -i -E '0,/^([[:space:]]*)assets:[[:space:]]*$/s//&\n\1  - assets\/audio\//' pubspec.yaml
+          fi
+          grep -n -A12 "assets:" pubspec.yaml
       - run: flutter pub get
       - run: dart run flutter_launcher_icons
       - run: sed -i 's/android:label="[^"]*"/android:label="الطريقة الخلوتية البكرية"/' android/app/src/main/AndroidManifest.xml
