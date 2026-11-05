@@ -1589,6 +1589,112 @@ class SaharMiniPlayer extends StatelessWidget {
       );
 }
 
+// رجل كرتوني يرفع يديه بالدعاء (يُرسم بالكود)
+class _DuaManPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.save();
+    canvas.scale(size.width / 100, size.height / 100);
+    final skin = Color(0xFFF2C48D);
+    Paint fillP(Color c) => Paint()
+      ..style = PaintingStyle.fill
+      ..isAntiAlias = true
+      ..color = c;
+    Paint strokeP(Color c, double w) => Paint()
+      ..style = PaintingStyle.stroke
+      ..isAntiAlias = true
+      ..strokeWidth = w
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round
+      ..color = c;
+
+    // الثوب
+    final robe = Path()
+      ..moveTo(24, 100)
+      ..quadraticBezierTo(27, 66, 50, 60)
+      ..quadraticBezierTo(73, 66, 76, 100)
+      ..close();
+    canvas.drawPath(robe, fillP(Colors.white));
+    canvas.drawPath(robe, strokeP(Colors.black.withOpacity(0.10), 1));
+    // ياقة ذهبية
+    canvas.drawPath(Path()..moveTo(43, 61)..lineTo(50, 71)..lineTo(57, 61), strokeP(gold, 1.8));
+
+    // الذراعان مرفوعتان بالدعاء
+    for (final m in [1.0, -1.0]) {
+      double x(double v) => 50 + (v - 50) * m;
+      final arm = Path()
+        ..moveTo(x(37), 70)
+        ..lineTo(x(24), 65)
+        ..lineTo(x(21), 44);
+      canvas.drawPath(arm, strokeP(Colors.black.withOpacity(0.10), 12));
+      canvas.drawPath(arm, strokeP(Colors.white, 10));
+      // سوار ذهبي عند الكم
+      canvas.drawLine(Offset(x(16.5), 47), Offset(x(25.5), 47.5), strokeP(gold, 1.6));
+      // الكف مفتوحة للأعلى
+      canvas.drawOval(Rect.fromCenter(center: Offset(x(21), 39), width: 11, height: 13), fillP(skin));
+      canvas.drawLine(Offset(x(18), 34.5), Offset(x(18.5), 31), strokeP(skin, 2.4));
+      canvas.drawLine(Offset(x(21), 33.5), Offset(x(21), 29.5), strokeP(skin, 2.4));
+      canvas.drawLine(Offset(x(24), 34.5), Offset(x(23.5), 31), strokeP(skin, 2.4));
+    }
+
+    // الرأس
+    canvas.drawCircle(Offset(50, 38), 13.5, fillP(skin));
+    // اللحية
+    final beard = Path()
+      ..moveTo(36.5, 38)
+      ..quadraticBezierTo(36, 59, 50, 61)
+      ..quadraticBezierTo(64, 59, 63.5, 38)
+      ..quadraticBezierTo(60, 47, 50, 47.5)
+      ..quadraticBezierTo(40, 47, 36.5, 38)
+      ..close();
+    canvas.drawPath(beard, fillP(Color(0xFF4A3426)));
+    // ابتسامة
+    canvas.drawArc(Rect.fromCenter(center: Offset(50, 51.5), width: 8, height: 5), 0.25, math.pi - 0.5, false, strokeP(Color(0xFFF2B8A0), 1.4));
+    // العمامة / الطاقية
+    final cap = Path()
+      ..moveTo(35.5, 33)
+      ..arcTo(Rect.fromCenter(center: Offset(50, 33), width: 29, height: 30), math.pi, math.pi, false)
+      ..close();
+    canvas.drawPath(cap, fillP(Colors.white));
+    canvas.drawPath(cap, strokeP(Colors.black.withOpacity(0.10), 1));
+    canvas.drawRRect(RRect.fromRectAndRadius(Rect.fromLTWH(35.5, 30.5, 29, 4.5), Radius.circular(2)), fillP(gold));
+    // عينان مغمضتان وخدّان
+    canvas.drawArc(Rect.fromCenter(center: Offset(44, 40), width: 6, height: 4), 0.2, math.pi - 0.4, false, strokeP(Color(0xFF3A2A20), 1.5));
+    canvas.drawArc(Rect.fromCenter(center: Offset(56, 40), width: 6, height: 4), 0.2, math.pi - 0.4, false, strokeP(Color(0xFF3A2A20), 1.5));
+    canvas.drawCircle(Offset(41, 44), 2.4, fillP(Color(0xFFE88F7A).withOpacity(0.55)));
+    canvas.drawCircle(Offset(59, 44), 2.4, fillP(Color(0xFFE88F7A).withOpacity(0.55)));
+
+    // لمعات نور فوق اليدين
+    void star(double cx, double cy, double r) {
+      final path = Path();
+      for (int i = 0; i < 8; i++) {
+        final a = -math.pi / 2 + i * math.pi / 4;
+        final rr = i.isEven ? r : r * 0.35;
+        final px = cx + rr * math.cos(a);
+        final py = cy + rr * math.sin(a);
+        if (i == 0) {
+          path.moveTo(px, py);
+        } else {
+          path.lineTo(px, py);
+        }
+      }
+      path.close();
+      canvas.drawPath(path, fillP(gold));
+    }
+
+    star(14, 18, 5);
+    star(86, 18, 5);
+    star(50, 7, 4);
+    star(25, 8, 2.6);
+    star(75, 8, 2.6);
+
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
 // صفحة المشغّل الكاملة
 class SaharAudioPage extends StatefulWidget {
   const SaharAudioPage({super.key});
@@ -1630,7 +1736,7 @@ class _SaharAudioPageState extends State<SaharAudioPage> {
             child: ClipOval(
               child: Stack(alignment: Alignment.center, children: [
                 Positioned.fill(child: CustomPaint(painter: StarPatternPainter(gold.withOpacity(0.18)))),
-                Icon(Icons.nightlight_round, size: 92, color: Colors.white),
+                Align(alignment: Alignment.bottomCenter, child: SizedBox(width: 180, height: 180, child: CustomPaint(painter: _DuaManPainter()))),
               ]),
             ),
           );
@@ -1753,9 +1859,21 @@ class _SaharAudioPageState extends State<SaharAudioPage> {
           children: [
             Center(child: _medallion()),
             SizedBox(height: 22),
-            Text('وِرْدُ السَّحَر', textAlign: TextAlign.center, style: TextStyle(fontFamily: 'Rsail', fontSize: 30, fontWeight: FontWeight.bold, color: accent(context))),
-            SizedBox(height: 4),
-            Text('الورد كاملاً مع القصائد', textAlign: TextAlign.center, style: TextStyle(fontSize: 16, color: ink(context).withOpacity(0.7))),
+            Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+              Icon(Icons.auto_awesome, color: gold, size: 22),
+              SizedBox(width: 12),
+              ShaderMask(
+                shaderCallback: (r) => LinearGradient(colors: [gold, Color(0xFFF3DE9A), gold]).createShader(r),
+                child: Text('ورد السحر', textAlign: TextAlign.center, style: TextStyle(fontFamily: 'Rsail', fontSize: 38, fontWeight: FontWeight.bold, color: Colors.white, height: 1.3, shadows: [Shadow(color: Colors.black.withOpacity(0.25), blurRadius: 6, offset: Offset(0, 2))])),
+              ),
+              SizedBox(width: 12),
+              Icon(Icons.auto_awesome, color: gold, size: 22),
+            ]),
+            SizedBox(height: 6),
+            const PoemDivider(),
+            Text('بصوت فضيلة الشيخ', textAlign: TextAlign.center, style: TextStyle(fontSize: 15, color: ink(context).withOpacity(0.65))),
+            SizedBox(height: 2),
+            Text('عبدالرحمن مصطفى الأزهري', textAlign: TextAlign.center, style: TextStyle(fontSize: 21, fontWeight: FontWeight.bold, color: accent(context))),
             SizedBox(height: 22),
             ValueListenableBuilder<String?>(
               valueListenable: SaharAudio.error,
