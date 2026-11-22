@@ -3797,15 +3797,12 @@ class _ReadProgressBar extends StatefulWidget {
 }
 
 class _ReadProgressBarState extends State<_ReadProgressBar> {
-  bool _show = true; // إظهار نسبة "باقي" أثناء التمرير ثم تختفي
   bool _pending = false;
-  Timer? _t;
 
   @override
   void initState() {
     super.initState();
     widget.controller.addListener(_onScroll);
-    _hideLater(2400);
     // أبعاد التمرير لا تُعرف إلا بعد أول رسم للصفحة
     Future.delayed(Duration(milliseconds: 350), () {
       if (mounted) setState(() {});
@@ -3815,15 +3812,7 @@ class _ReadProgressBarState extends State<_ReadProgressBar> {
   @override
   void dispose() {
     widget.controller.removeListener(_onScroll);
-    _t?.cancel();
     super.dispose();
-  }
-
-  void _hideLater(int ms) {
-    _t?.cancel();
-    _t = Timer(Duration(milliseconds: ms), () {
-      if (mounted) setState(() => _show = false);
-    });
   }
 
   void _onScroll() {
@@ -3832,8 +3821,7 @@ class _ReadProgressBarState extends State<_ReadProgressBar> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _pending = false;
       if (!mounted) return;
-      setState(() => _show = true);
-      _hideLater(1500);
+      setState(() {});
     });
   }
 
@@ -3851,8 +3839,6 @@ class _ReadProgressBarState extends State<_ReadProgressBar> {
     }
     if (!can) return SizedBox.shrink();
     final dark = widget.dark;
-    final finished = frac >= 0.985;
-    final remaining = ((1 - frac) * 100).round();
     const padV = 16.0, knob = 16.0, trackW = 6.0;
     final goldLight = Color(0xFFF2DE9F);
     return LayoutBuilder(builder: (context, bc) {
@@ -3899,28 +3885,6 @@ class _ReadProgressBarState extends State<_ReadProgressBar> {
               gradient: RadialGradient(colors: [Colors.white, goldLight, gold]),
               border: Border.all(color: Colors.white, width: 1.4),
               boxShadow: [BoxShadow(color: gold.withOpacity(0.8), blurRadius: 8, spreadRadius: 1)],
-            ),
-          ),
-        ),
-        // نسبة الباقي بجانب المؤشّر
-        Positioned(
-          right: 3 + knob + 6,
-          top: y - 14,
-          child: AnimatedOpacity(
-            opacity: _show ? 1 : 0,
-            duration: Duration(milliseconds: 260),
-            child: Container(
-              padding: EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              decoration: BoxDecoration(
-                color: deepGreen.withOpacity(0.94),
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: gold, width: 1),
-                boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.25), blurRadius: 6, offset: Offset(0, 2))],
-              ),
-              child: Text(
-                finished ? 'انتهى ✓' : 'باقي $remaining%',
-                style: TextStyle(color: goldLight, fontSize: 12.5, fontWeight: FontWeight.w800, height: 1.2),
-              ),
             ),
           ),
         ),
