@@ -3546,6 +3546,7 @@ class _TextReaderPageState extends State<TextReaderPage> {
         Listener(behavior: HitTestBehavior.translucent, onPointerDown: (_) {
           if (auto) _stopAuto();
         }, child: w),
+        Positioned.fill(child: IgnorePointer(child: _ReadProgressBar(controller: sc, dark: isDark(context) || paperMode.value == 3))),
         if (auto)
           Positioned(
             left: 16,
@@ -3783,6 +3784,148 @@ class _TextReaderPageState extends State<TextReaderPage> {
         ),
       )))]),
     );
+  }
+}
+
+// خط واقف على اليمين يبيّن كم باقي حتى ينتهي النص: الجزء المضيء هو الباقي ويقصر كلما قرأتِ
+class _ReadProgressBar extends StatefulWidget {
+  final ScrollController controller;
+  final bool dark;
+  const _ReadProgressBar({required this.controller, required this.dark});
+  @override
+  State<_ReadProgressBar> createState() => _ReadProgressBarState();
+}
+
+class _ReadProgressBarState extends State<_ReadProgressBar> {
+  bool _show = true; // إظهار نسبة "باقي" أثناء التمرير ثم تختفي
+  bool _pending = false;
+  Timer? _t;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.addListener(_onScroll);
+    _hideLater(2400);
+    // أبعاد التمرير لا تُعرف إلا بعد أول رسم للصفحة
+    Future.delayed(Duration(milliseconds: 350), () {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_onScroll);
+    _t?.cancel();
+    super.dispose();
+  }
+
+  void _hideLater(int ms) {
+    _t?.cancel();
+    _t = Timer(Duration(milliseconds: ms), () {
+      if (mounted) setState(() => _show = false);
+    });
+  }
+
+  void _onScroll() {
+    if (_pending) return;
+    _pending = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _pending = false;
+      if (!mounted) return;
+      setState(() => _show = true);
+      _hideLater(1500);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = widget.controller;
+    double frac = 0;
+    bool can = false;
+    if (c.hasClients && c.position.hasContentDimensions) {
+      final max = c.position.maxScrollExtent;
+      if (max > 1) {
+        can = true;
+        frac = (c.offset / max).clamp(0.0, 1.0).toDouble();
+      }
+    }
+    if (!can) return SizedBox.shrink();
+    final dark = widget.dark;
+    final finished = frac >= 0.985;
+    final remaining = ((1 - frac) * 100).round();
+    const padV = 16.0, knob = 16.0, trackW = 6.0;
+    final goldLight = Color(0xFFF2DE9F);
+    return LayoutBuilder(builder: (context, bc) {
+      final h = math.max(0.0, bc.maxHeight - 2 * padV);
+      final y = padV + h * frac;
+      return Stack(children: [
+        // المقروء: خط خافت
+        Positioned(
+          right: 3,
+          top: padV,
+          bottom: padV,
+          width: trackW,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: (dark ? Colors.white : Colors.black).withOpacity(0.12),
+              borderRadius: BorderRadius.circular(3),
+              border: Border.all(color: gold.withOpacity(0.35), width: 0.6),
+            ),
+          ),
+        ),
+        // الباقي: خط مضيء يقصر كلما تقدّمتِ
+        Positioned(
+          right: 3,
+          top: y,
+          bottom: padV,
+          width: trackW,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [dark ? Color(0xFF69F0AE) : green, gold]),
+              borderRadius: BorderRadius.circular(3),
+              boxShadow: [BoxShadow(color: (dark ? Color(0xFF00E676) : gold).withOpacity(0.55), blurRadius: 6)],
+            ),
+          ),
+        ),
+        // المؤشّر عند موضع القراءة
+        Positioned(
+          right: 3 + trackW / 2 - knob / 2,
+          top: y - knob / 2,
+          width: knob,
+          height: knob,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: RadialGradient(colors: [Colors.white, goldLight, gold]),
+              border: Border.all(color: Colors.white, width: 1.4),
+              boxShadow: [BoxShadow(color: gold.withOpacity(0.8), blurRadius: 8, spreadRadius: 1)],
+            ),
+          ),
+        ),
+        // نسبة الباقي بجانب المؤشّر
+        Positioned(
+          right: 3 + knob + 6,
+          top: y - 14,
+          child: AnimatedOpacity(
+            opacity: _show ? 1 : 0,
+            duration: Duration(milliseconds: 260),
+            child: Container(
+              padding: EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: deepGreen.withOpacity(0.94),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: gold, width: 1),
+                boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.25), blurRadius: 6, offset: Offset(0, 2))],
+              ),
+              child: Text(
+                finished ? 'انتهى ✓' : 'باقي $remaining%',
+                style: TextStyle(color: goldLight, fontSize: 12.5, fontWeight: FontWeight.w800, height: 1.2),
+              ),
+            ),
+          ),
+        ),
+      ]);
+    });
   }
 }
 
