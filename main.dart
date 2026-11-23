@@ -456,7 +456,7 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
                   child: Column(children: [
                     Opacity(
                       opacity: fBasmala,
-                      child: Text('بِسْمِ اللَّهِ الرَّحْمَنِ الرَّحِيمِ', style: TextStyle(fontFamily: 'Rsail', fontSize: 22, height: 1.6, color: goldLight)),
+                      child: Text('بسم الله الرحمن الرحيم', style: TextStyle(fontFamily: 'Rsail', fontSize: 22, height: 1.6, color: goldLight)),
                     ),
                     SizedBox(height: 6),
                     Expanded(
@@ -5019,16 +5019,64 @@ TextStyle muhammadStyle(BuildContext c, TextStyle st) {
   );
 }
 
+// علامة نهاية الآية ۝ أو رقم الآية ﴿1﴾: تُرسم كدائرة مزخرفة داخل التطبيق حتى لا تظهر مربعاً فارغاً لو الخط لا يحتويها
+final RegExp _ayahMarkRe = RegExp('\u06DD|\uFD3E\\s*([0-9\u0660-\u0669]+)\\s*\uFD3F');
+
+InlineSpan _ayahMark(BuildContext context, TextStyle st, String? num) {
+  final fs = st.fontSize ?? 20;
+  final d = fs * 0.95;
+  final round = num == null || num.length <= 2;
+  final w = num == null ? d * 0.85 : (round ? d : d * 0.5 + num.length * d * 0.34);
+  final Widget inner = num == null
+      ? Container(width: d * 0.2, height: d * 0.2, decoration: BoxDecoration(color: gold, shape: BoxShape.circle))
+      : Text(num, textDirection: TextDirection.ltr, style: TextStyle(fontSize: d * 0.52, height: 1.0, fontWeight: FontWeight.bold, color: st.color));
+  return WidgetSpan(
+    alignment: PlaceholderAlignment.middle,
+    child: Padding(
+      padding: EdgeInsets.symmetric(horizontal: 3),
+      child: Container(
+        width: w,
+        height: num == null ? d * 0.85 : d,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          shape: round ? BoxShape.circle : BoxShape.rectangle,
+          borderRadius: round ? null : BorderRadius.circular(d * 0.5),
+          color: gold.withOpacity(0.14),
+          border: Border.all(color: gold, width: 1.3),
+        ),
+        child: inner,
+      ),
+    ),
+  );
+}
+
 // سطر واحد: الكلمات المميزة بلون مختلف (اللون فقط، دون تغيير العرض أو الوزن حتى لا يتأثر الضبط)
 Widget hiText(BuildContext context, String line, TextStyle st) {
   final hi = st.copyWith(color: highlightColor(context));
   final mu = muhammadStyle(context, st);
+  TextStyle? styleOf(String w) => _isMuhammad(w) ? mu : (_hasHighlight(w) ? hi : null);
   final spans = <InlineSpan>[];
   final words = line.split(' ');
   for (int i = 0; i < words.length; i++) {
     if (i > 0) spans.add(TextSpan(text: ' '));
     final w = words[i];
-    spans.add(TextSpan(text: w, style: _isMuhammad(w) ? mu : (_hasHighlight(w) ? hi : null)));
+    if (_ayahMarkRe.hasMatch(w)) {
+      int last = 0;
+      for (final m in _ayahMarkRe.allMatches(w)) {
+        if (m.start > last) {
+          final pre = w.substring(last, m.start);
+          spans.add(TextSpan(text: pre, style: styleOf(pre)));
+        }
+        spans.add(_ayahMark(context, st, m.group(1)));
+        last = m.end;
+      }
+      if (last < w.length) {
+        final post = w.substring(last);
+        spans.add(TextSpan(text: post, style: styleOf(post)));
+      }
+      continue;
+    }
+    spans.add(TextSpan(text: w, style: styleOf(w)));
   }
   return Text.rich(TextSpan(style: st, children: spans), maxLines: 1, softWrap: false, overflow: TextOverflow.visible);
 }
@@ -5238,7 +5286,7 @@ const String hizbNawawiText = r'''حزب الإمام النووي رضي الل
 
 بِسْمِ اللَّهِ الَّذِي لَا يَضُرُّ مَعَ اسْمِهِ شَيْءٌ فِي الْأَرْضِ وَلَا فِي السَّمَاءِ وَهُوَ السَّمِيعُ الْعَلِيمُ (ثَلَاثًا).
 
-بِسْمِ اللَّهِ خَيْرِ الْأَسْمَاءِ فِي الْأَرْضِ وَفِي السَّمَاءِ، بِسْمِ اللَّهِ أَفْتَتِحُ وَبِهِ أَخْتَتِمُ، اللَّهُ اللَّهُ اللَّهُ، اللَّهُ رَبِّي لَا أُشْرِكُ بِهِ شَيْئًا، اللَّهُ اللَّهُ اللَّهُ، اللَّهُ رَبِّي لَا إِلَهَ إِلَّا اللَّهُ، اللَّهُ أَعَزُّ وَأَجَلُّ وَأَكْبَرُ مِمَّا أَخَافُ وَأَحْذَرُ (ثَلَاثًا).
+بِسْمِ اللَّهِ خَيْرِ الْأَسْمَاءِ فِي الْأَرْضِ وَفِي السَّمَاءِ، بِسْمِ اللَّهِ أَفْتَتِحُ وَبِهِ أَخْتَتِمُ، اللَّهُ اللَّهُ اللَّهُ، اللَّهُ رَبِّي لَا أُشْرِكُ بِهِ شَيْئًا، اللَّهُ اللَّهُ اللَّهُ، اللَّهُ رَبِّي لَا إِلَهَ إِلَّا اللَّهُ، اللَّهُ أَعَزُّ وَأَجَلُّ وَأَكْبَرُ مِمَّا أَخَافُ وَأَحْذَرُ.
 
 وَأَحْذَرُ اللَّهُمَّ أَعُوذُ مِنْ شَرِّ نَفْسِي، وَمِنْ شَرِّ غَيْرِي، وَمِنْ شَرِّ مَا خَلَقَ رَبِّي وَذَرَأَ وَبَرَأَ، وَبِكَ اللَّهُمَّ أَحْتَرِزُ مِنْهُمْ، وَبِكَ اللَّهُمَّ أَعُوذُ مِنْ شُرُورِهِمْ، وَبِكَ اللَّهُمَّ أَدْرَأُ فِي نُحُورِهِمْ وَأَقْدَمُ بَيْنَ يَدَيَّ وَأَيْدِيهِمْ.
 
@@ -5258,11 +5306,11 @@ const String hizbNawawiText = r'''حزب الإمام النووي رضي الل
 
 فَإِنْ تَوَلَّوْا فَقُلْ حَسْبِيَ اللَّهُ لَا إِلَهَ إِلَّا هُوَ عَلَيْهِ تَوَكَّلْتُ وَهُوَ رَبُّ الْعَرْشِ الْعَظِيمِ (سَبْعًا).
 
-وَلَا حَوْلَ وَلَا قُوَّةَ إِلَّا بِاللَّهِ الْعَلِيِّ الْعَظِيمِ (ثَلَاثًا)، وَصَلَّى اللَّهُ عَلَى سَيِّدِنَا مُحَمَّدٍ وَعَلَى آلِهِ وَصَحْبِهِ وَسَلَّمَ.
+وَلَا حَوْلَ وَلَا قُوَّةَ إِلَّا بِاللَّهِ الْعَلِيِّ الْعَظِيمِ، وَصَلَّى اللَّهُ عَلَى سَيِّدِنَا مُحَمَّدٍ وَعَلَى آلِهِ وَصَحْبِهِ وَسَلَّمَ.
 
 (ثُمَّ يَتْفُلُ التَّالِي عَنْ يَمِينِهِ وَشِمَالِهِ وَأَمَامِهِ وَخَلْفِهِ ثَلَاثًا، ثُمَّ يَقُولُ:)
 
-خَبَّأْتُ نَفْسِي فِي خَزَائِنِ بِسْمِ اللَّهِ، أَقْفَالُهَا ثِقَتِي بِاللَّهِ، مَفَاتِيحُهَا لَا قُوَّةَ إِلَّا بِاللَّهِ، أُدَافِعُ بِكَ اللَّهُمَّ عَنْ نَفْسِي وَأَنْفُسِهِمْ مَا أُطِيقُ وَمَا لَا أُطِيقُ، لَا طَاقَةَ لِمَخْلُوقٍ مَعَ قُدْرَةِ الْخَالِقِ، حَسْبِيَ اللَّهُ وَنِعْمَ الْوَكِيلُ، وَلَا حَوْلَ وَلَا قُوَّةَ إِلَّا بِاللَّهِ الْعَلِيِّ الْعَظِيمِ، وَصَلَّى اللَّهُ عَلَى سَيِّدِنَا مُحَمَّدٍ وَعَلَى آلِهِ وَصَحْبِهِ وَسَلَّمَ (ثَلَاثًا).''';
+خَبَّأْتُ نَفْسِي فِي خَزَائِنِ بِسْمِ اللَّهِ، أَقْفَالُهَا ثِقَتِي بِاللَّهِ، مَفَاتِيحُهَا لَا قُوَّةَ إِلَّا بِاللَّهِ، أُدَافِعُ بِكَ اللَّهُمَّ عَنْ نَفْسِي وَأَنْفُسِهِمْ مَا أُطِيقُ وَمَا لَا أُطِيقُ، لَا طَاقَةَ لِمَخْلُوقٍ مَعَ قُدْرَةِ الْخَالِقِ، حَسْبِيَ اللَّهُ وَنِعْمَ الْوَكِيلُ، وَلَا حَوْلَ وَلَا قُوَّةَ إِلَّا بِاللَّهِ الْعَلِيِّ الْعَظِيمِ، وَصَلَّى اللَّهُ عَلَى سَيِّدِنَا مُحَمَّدٍ وَعَلَى آلِهِ وَصَحْبِهِ وَسَلَّمَ.''';
 
 // نص حزب البحر (مضمّن داخل التطبيق)
 const String duaKhatmText = r'''دعاء الختام
