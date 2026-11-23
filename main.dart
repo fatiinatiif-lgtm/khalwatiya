@@ -278,15 +278,14 @@ class SplashScreen extends StatefulWidget {
 
 class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderStateMixin {
   late final AnimationController ctrl;
+  bool _went = false;
 
   @override
   void initState() {
     super.initState();
     ctrl = AnimationController(vsync: this, duration: Duration(seconds: 5));
     ctrl.addStatusListener((st) {
-      if (st == AnimationStatus.completed && mounted) {
-        Navigator.of(context).pushReplacement(SoftRoute(builder: (_) => HomeShell()));
-      }
+      if (st == AnimationStatus.completed) _goHome();
     });
     ctrl.forward();
   }
@@ -297,85 +296,226 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
     super.dispose();
   }
 
-  // عداد القلب: يعد من 1 إلى 5، وفي كل ثانية يخرج منه قلب صغير يطفو لأعلى
+  // الانتقال للرئيسية: تلقائياً بعد 5 ثوانٍ أو بالضغط على الشاشة
+  void _goHome() {
+    if (_went || !mounted) return;
+    _went = true;
+    Navigator.of(context).pushReplacement(SoftRoute(builder: (_) => HomeShell()));
+  }
+
+  // ظهور تدريجي لكل عنصر في مجال زمني من 0 إلى 1
+  double _iv(double t, double a, double b, [Curve c = Curves.easeOutCubic]) => c.transform(((t - a) / (b - a)).clamp(0.0, 1.0).toDouble());
+
+  // عداد القلب: يعد من 1 إلى 5 داخل حلقة تقدّم، وفي كل ثانية يخرج منه قلب صغير يطفو لأعلى
   Widget _heartCounter(double t) {
     final sec = t * 5;
     final n = math.min(sec.floor(), 4) + 1;
     final frac = sec - sec.floor();
-    final pulse = frac < 0.25 ? 1.0 + 0.18 * math.sin(frac / 0.25 * math.pi) : 1.0;
+    final pulse = frac < 0.25 ? 1.0 + 0.16 * math.sin(frac / 0.25 * math.pi) : 1.0;
     final hearts = [Color(0xFFFF8FA3), Color(0xFFE5576B), lighten(0.55)];
     final particles = <Widget>[];
     for (int i = 0; i < 5; i++) {
       final age = sec - i;
       if (age < 0 || age > 1.8) continue;
-      final sway = math.sin(age * 3 + i) * 18 * (i.isEven ? 1 : -1);
+      final sway = math.sin(age * 3 + i) * 16 * (i.isEven ? 1 : -1);
       particles.add(Align(
         alignment: Alignment.center,
         child: Transform.translate(
-          offset: Offset(sway, -45 - age * 80),
+          offset: Offset(sway, -34 - age * 62),
           child: Opacity(
             opacity: (1 - age / 1.8).clamp(0.0, 1.0).toDouble(),
-            child: Transform.scale(scale: 0.5 + 0.45 * age, child: Icon(Icons.favorite, size: 34, color: hearts[i % 3])),
+            child: Transform.scale(scale: 0.5 + 0.45 * age, child: Icon(Icons.favorite, size: 26, color: hearts[i % 3])),
           ),
         ),
       ));
     }
     return Stack(alignment: Alignment.center, clipBehavior: Clip.none, children: [
       ...particles,
+      SizedBox(
+        width: 108,
+        height: 108,
+        child: CircularProgressIndicator(
+          value: t,
+          strokeWidth: 3,
+          strokeCap: StrokeCap.round,
+          backgroundColor: Colors.white.withOpacity(0.12),
+          valueColor: AlwaysStoppedAnimation<Color>(gold),
+        ),
+      ),
       Transform.scale(
         scale: pulse,
         child: Stack(alignment: Alignment.center, children: [
-          Icon(Icons.favorite, size: 116, color: Color(0xFFE5576B), shadows: [Shadow(color: Color(0x88E5576B), blurRadius: 24)]),
+          Icon(Icons.favorite, size: 84, color: Color(0xFFE5576B), shadows: [Shadow(color: Color(0x88E5576B), blurRadius: 22)]),
           Padding(
-            padding: EdgeInsets.only(bottom: 6),
-            child: Text('$n', style: TextStyle(fontFamily: 'Rsail', fontWeight: FontWeight.w700, fontSize: 46, color: Colors.white)),
+            padding: EdgeInsets.only(bottom: 5),
+            child: Text('$n', style: TextStyle(fontFamily: 'Rsail', fontWeight: FontWeight.w700, fontSize: 34, color: Colors.white)),
           ),
         ]),
       ),
     ]);
   }
 
+  // إطار مقوّس مزدوج بحدود ذهبية يحيط بلوحة المسجد
+  Widget _frame() {
+    BorderRadius r(double top, double bottom) => BorderRadius.only(
+          topLeft: Radius.circular(top),
+          topRight: Radius.circular(top),
+          bottomLeft: Radius.circular(bottom),
+          bottomRight: Radius.circular(bottom),
+        );
+    return Container(
+      padding: EdgeInsets.all(5),
+      decoration: BoxDecoration(
+        borderRadius: r(110, 30),
+        border: Border.all(color: gold, width: 2.2),
+        boxShadow: [
+          BoxShadow(color: gold.withOpacity(0.32), blurRadius: 30, spreadRadius: 1),
+          BoxShadow(color: Colors.black.withOpacity(0.45), blurRadius: 18, offset: Offset(0, 8)),
+        ],
+      ),
+      child: Container(
+        decoration: BoxDecoration(borderRadius: r(105, 25), border: Border.all(color: gold.withOpacity(0.55), width: 1)),
+        child: ClipRRect(
+          borderRadius: r(104, 24),
+          child: CustomPaint(painter: MosquePainter(), size: Size.infinite),
+        ),
+      ),
+    );
+  }
+
+  // اسم التطبيق بلمعة ذهبية تمرّ عليه
+  Widget _title(double t) {
+    final frac = (t * 2.6) % 1.0;
+    final x = -0.3 + 1.6 * frac;
+    return ShaderMask(
+      blendMode: BlendMode.srcIn,
+      shaderCallback: (rect) => LinearGradient(
+        colors: [Color(0xFFE6D19A), Colors.white, Color(0xFFE6D19A)],
+        stops: [(x - 0.18).clamp(0.0, 1.0).toDouble(), x.clamp(0.0, 1.0).toDouble(), (x + 0.18).clamp(0.0, 1.0).toDouble()],
+      ).createShader(rect),
+      child: Text(
+        'الطريقة الخلوتية البكرية',
+        textAlign: TextAlign.center,
+        style: TextStyle(fontFamily: 'Rsail', fontWeight: FontWeight.w700, fontSize: 33, height: 1.5, color: Colors.white),
+      ),
+    );
+  }
+
+  Widget _ornament() {
+    final c = gold;
+    return Padding(
+      padding: EdgeInsets.symmetric(horizontal: 30),
+      child: Row(children: [
+        Expanded(child: Container(height: 1.2, decoration: BoxDecoration(gradient: LinearGradient(colors: [Colors.transparent, c.withOpacity(0.8)])))),
+        Padding(
+          padding: EdgeInsets.symmetric(horizontal: 10),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Transform.rotate(angle: 0.785398, child: Container(width: 6, height: 6, color: c)),
+            SizedBox(width: 7),
+            Transform.rotate(angle: 0.785398, child: Container(width: 10, height: 10, decoration: BoxDecoration(border: Border.all(color: c, width: 1.5)))),
+            SizedBox(width: 7),
+            Transform.rotate(angle: 0.785398, child: Container(width: 6, height: 6, color: c)),
+          ]),
+        ),
+        Expanded(child: Container(height: 1.2, decoration: BoxDecoration(gradient: LinearGradient(colors: [c.withOpacity(0.8), Colors.transparent])))),
+      ]),
+    );
+  }
+
   @override
-  Widget build(BuildContext context) => Scaffold(
-        backgroundColor: deepGreen,
-        body: SafeArea(
-          child: Padding(
-            padding: EdgeInsets.fromLTRB(18, 14, 18, 8),
-            child: Column(
-              children: [
-                Expanded(
-                  child: Center(
-                    child: AspectRatio(
-                      aspectRatio: 1.05,
-                      child: Container(
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(28),
-                          border: Border.all(color: gold, width: 2),
-                          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.35), blurRadius: 18, offset: Offset(0, 8))],
-                        ),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(26),
-                          child: CustomPaint(painter: MosquePainter(), size: Size.infinite),
+  Widget build(BuildContext context) {
+    const goldLight = Color(0xFFF2DE9F);
+    return Scaffold(
+      backgroundColor: deepDark,
+      body: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: _goHome,
+        child: AnimatedBuilder(
+          animation: ctrl,
+          builder: (context, _) {
+            final t = ctrl.value;
+            final fBasmala = _iv(t, 0.02, 0.16);
+            final fFrame = _iv(t, 0.0, 0.22);
+            final fTitle = _iv(t, 0.14, 0.34);
+            final fTag = _iv(t, 0.28, 0.46);
+            final fCount = _iv(t, 0.34, 0.50);
+            return Stack(children: [
+              // خلفية متدرّجة بإضاءة من أعلى
+              Positioned.fill(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: RadialGradient(center: Alignment(0, -0.35), radius: 1.15, colors: [Color.lerp(deepGreen, green, 0.6)!, deepGreen, deepDark], stops: [0.0, 0.55, 1.0]),
+                  ),
+                ),
+              ),
+              Positioned.fill(child: CustomPaint(painter: StarPatternPainter(gold.withOpacity(0.06)))),
+              Positioned.fill(child: CustomPaint(painter: _SparklePainter(t))),
+              SafeArea(
+                child: Padding(
+                  padding: EdgeInsets.fromLTRB(22, 10, 22, 8),
+                  child: Column(children: [
+                    Opacity(
+                      opacity: fBasmala,
+                      child: Text('بِسْمِ اللَّهِ الرَّحْمَنِ الرَّحِيمِ', style: TextStyle(fontFamily: 'Rsail', fontSize: 22, height: 1.6, color: goldLight)),
+                    ),
+                    SizedBox(height: 6),
+                    Expanded(
+                      child: Center(
+                        child: Opacity(
+                          opacity: fFrame,
+                          child: Transform.scale(scale: 0.92 + 0.08 * fFrame, child: AspectRatio(aspectRatio: 1.0, child: _frame())),
                         ),
                       ),
                     ),
-                  ),
+                    SizedBox(height: 10),
+                    Opacity(opacity: fTitle, child: Transform.translate(offset: Offset(0, 14 * (1 - fTitle)), child: _title(t))),
+                    Opacity(opacity: fTitle, child: _ornament()),
+                    Opacity(
+                      opacity: fTag,
+                      child: Padding(
+                        padding: EdgeInsets.only(top: 8),
+                        child: Text(
+                          'هلموا إلى ذكر الله أيها المريدون',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(fontFamily: 'Rsail', fontWeight: FontWeight.w700, fontSize: 24, color: Color(0xFFE6D19A), height: 1.6),
+                        ),
+                      ),
+                    ),
+                    SizedBox(height: 150, child: Opacity(opacity: fCount, child: _heartCounter(t))),
+                    Opacity(
+                      opacity: (fCount * (0.45 + 0.25 * math.sin(t * 24))).clamp(0.0, 1.0).toDouble(),
+                      child: Text('اضغط للمتابعة', style: TextStyle(fontSize: 12.5, color: Colors.white70, height: 1.4)),
+                    ),
+                  ]),
                 ),
-                SizedBox(height: 12),
-                Text(
-                  'هلموا إلى ذكر الله أيها المريدون',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontFamily: 'Rsail', fontWeight: FontWeight.w700, fontSize: 27, color: Color(0xFFE6D19A), height: 1.7),
-                ),
-                SizedBox(
-                  height: 190,
-                  child: AnimatedBuilder(animation: ctrl, builder: (_, __) => _heartCounter(ctrl.value)),
-                ),
-              ],
-            ),
-          ),
+              ),
+            ]);
+          },
         ),
-      );
+      ),
+    );
+  }
+}
+
+// شرارات ذهبية صغيرة تطفو ببطء في الخلفية
+class _SparklePainter extends CustomPainter {
+  final double t;
+  _SparklePainter(this.t);
+  @override
+  void paint(Canvas c, Size s) {
+    for (int i = 0; i < 28; i++) {
+      final fx = (i * 0.6180339) % 1.0;
+      final speed = 0.05 + (i % 5) * 0.02;
+      final fy = 1 - ((t * 5 * speed + i * 0.137) % 1.0);
+      final tw = 0.5 + 0.5 * math.sin(t * 22 + i);
+      final edge = math.sin(fy * math.pi);
+      final op = ((0.12 + 0.38 * tw) * edge).clamp(0.0, 1.0).toDouble();
+      c.drawCircle(Offset(fx * s.width, fy * s.height), 0.8 + (i % 3) * 0.7, Paint()..color = Color(0xFFF2DE9F).withOpacity(op));
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _SparklePainter old) => old.t != t;
 }
 
 // ===================== ليلة الجمعة ويومها: عدّاد الصلاة على النبي ﷺ =====================
@@ -736,6 +876,8 @@ class HomePage extends StatelessWidget {
           FridayCard(),
           SizedBox(height: 22),
           Padding(padding: EdgeInsets.symmetric(horizontal: 16), child: ThanksCard()),
+          SizedBox(height: 14),
+          SanadButton(),
           _SectionTitle('مواقيت الصلاة'),
           Padding(padding: EdgeInsets.symmetric(horizontal: 16), child: PrayerCard()),
           SizedBox(height: 18),
@@ -1158,7 +1300,7 @@ class AwradPage extends StatelessWidget {
           SectionTile(
             highlight: true,
             title: 'تحدي ما بعد الصلاة',
-            subtitle: 'المسبعات والدرديرية والمنظومة بعد كل صلاة',
+            subtitle: 'المسبعات والدرديرية والمنظومة بعد كل صلاة، وورد السحر وحزب النووي وقت السحر',
             icon: Icons.emoji_events_rounded,
             onTap: () => Navigator.push(context, SoftRoute(builder: (_) => PrayerChallengePage())),
           ),
@@ -1170,46 +1312,53 @@ class AwradPage extends StatelessWidget {
             onTap: () => Navigator.push(context, SoftRoute(builder: (_) => BookIndexPage())),
           ),
           SectionTile(
-            shade: 0.2,
+            shade: 0.14,
             title: 'المسبعات',
             subtitle: 'النص الكامل',
             icon: Icons.format_list_numbered,
             onTap: () => openText(context, 'المسبعات', 'assets/texts/musabbaat.txt', false),
           ),
           SectionTile(
-            shade: 0.4,
+            shade: 0.29,
             title: 'الصلوات الدرديرية',
             subtitle: 'النص الكامل',
             icon: Icons.volunteer_activism,
             onTap: () => openText(context, 'الصلوات الدرديرية', 'assets/texts/salawat_dardiriyya.txt', false),
           ),
           SectionTile(
-            shade: 0.6,
+            shade: 0.43,
             title: 'المنظومة',
             subtitle: 'القصيدة كاملة',
             icon: Icons.library_books,
             onTap: () => openText(context, 'المنظومة', 'assets/texts/manzuma.txt', true),
           ),
           SectionTile(
-            shade: 0.8,
+            shade: 0.57,
             title: 'يقرأ بعد المنظومة',
             subtitle: 'النص كاملاً',
             icon: Icons.auto_awesome,
             onTap: () => openTextString(context, 'يقرأ بعد المنظومة', duaKhatmText),
           ),
           SectionTile(
-            shade: 0.9,
+            shade: 0.71,
             title: 'ورد السحر',
             subtitle: 'ست أقسام بالترتيب',
             icon: Icons.nightlight_round,
             onTap: () => Navigator.push(context, SoftRoute(builder: (_) => SaharPage())),
           ),
           SectionTile(
-            shade: 1.0,
+            shade: 0.86,
             title: 'حزب البحر',
             subtitle: 'النص كاملاً',
             icon: Icons.waves,
             onTap: () => openTextString(context, 'حزب البحر', hizbAlBahrText),
+          ),
+          SectionTile(
+            shade: 1.0,
+            title: 'حزب الإمام النووي',
+            subtitle: 'النص كاملاً',
+            icon: Icons.shield_rounded,
+            onTap: () => openTextString(context, 'حزب الإمام النووي', hizbNawawiText),
           ),
         ])),
       );
@@ -1812,7 +1961,9 @@ class _ChItem {
   final String title, asset;
   final bool poem;
   final IconData icon;
-  const _ChItem(this.title, this.asset, this.poem, this.icon);
+  final String? text; // نص مضمّن داخل التطبيق بدل ملف الأصول
+  final bool allCounts; // أي عدد بين قوسين يظهر له صندوق عدّ
+  const _ChItem(this.title, this.asset, this.poem, this.icon, {this.text, this.allCounts = false});
 }
 
 const List<_ChItem> challengeItems = [
@@ -1821,13 +1972,38 @@ const List<_ChItem> challengeItems = [
   _ChItem('المنظومة', 'assets/texts/manzuma.txt', true, Icons.library_books),
 ];
 
-// ورد السحر: بند إضافي في خانة وقت السحر فقط
-const _ChItem saharWirdChItem = _ChItem('ورد السحر', 'assets/texts/sahar_wird.txt', false, Icons.nightlight_round);
-List<_ChItem> chItemsFor(int pi) => challengePrayers[pi] == -1 ? [...challengeItems, saharWirdChItem] : challengeItems;
+// وقت السحر: بندان فقط (ورد السحر وحزب الإمام النووي)، وباقي الصلوات المسبعات والدرديرية والمنظومة
+const _ChItem saharWirdChItem = _ChItem('ورد السحر', 'assets/texts/sahar_wird.txt', false, Icons.nightlight_round, text: saharWirdText, allCounts: true);
+const _ChItem nawawiChItem = _ChItem('حزب الإمام النووي', '', false, Icons.shield_rounded, text: hizbNawawiText);
+List<_ChItem> chItemsFor(int pi) => challengePrayers[pi] == -1 ? [saharWirdChItem, nawawiChItem] : challengeItems;
+
+// مفاتيح الحفظ: بنود السحر لها مفاتيح جديدة (s) حتى لا تختلط بمفاتيح الأيام القديمة
+String chKey(int pi, int ii) => challengePrayers[pi] == -1 ? '$pi-s$ii' : '$pi-$ii';
+bool _chIsNew(String dayKey) => dayKey.compareTo(_chNawSince ?? todayKey()) >= 0;
+// الأيام السابقة تُعرض كما أُنجزت وقتها (قبل هذا التعديل)
+List<_ChItem> chItemsForDay(int pi, String dayKey) {
+  if (_chIsNew(dayKey)) return chItemsFor(pi);
+  return challengePrayers[pi] == -1 ? [...challengeItems, saharWirdChItem] : challengeItems;
+}
+
+String chKeyForDay(int pi, int ii, String dayKey) => _chIsNew(dayKey) ? chKey(pi, ii) : '$pi-$ii';
+String chShortFor(int pi, int ii, String dayKey) {
+  if (_chIsNew(dayKey) && challengePrayers[pi] == -1) return ['ورد السحر', 'حزب النووي'][ii];
+  return _chShort[ii];
+}
 
 // الأيام السابقة لتاريخ إضافة ورد السحر تُحسب كاملة بدونه (حتى لا تنقطع السلاسل والأوسمة)
 String? _chSinceCache;
+String? _chNawSince; // أول يوم طُبّق فيه ورد السحر + حزب النووي في وقت السحر
 Future<void> chLoadSince(SharedPreferences p) async {
+  if (_chNawSince == null) {
+    var n = p.getString('chnaw_since');
+    if (n == null) {
+      n = todayKey();
+      await p.setString('chnaw_since', n);
+    }
+    _chNawSince = n;
+  }
   if (_chSinceCache != null) return;
   var v = p.getString('chwird_since');
   if (v == null) {
@@ -1840,7 +2016,10 @@ Future<void> chLoadSince(SharedPreferences p) async {
   _chSinceCache = v;
 }
 
-int chNeed(String dayKey) => challengePrayers.length * challengeItems.length + (dayKey.compareTo(_chSinceCache ?? todayKey()) >= 0 ? 1 : 0);
+int chNeed(String dayKey) {
+  if (_chIsNew(dayKey)) return challengePrayers.where((e) => e != -1).length * challengeItems.length + 2;
+  return challengePrayers.length * challengeItems.length + (dayKey.compareTo(_chSinceCache ?? todayKey()) >= 0 ? 1 : 0);
+}
 
 class PrayerChallengePage extends StatefulWidget {
   const PrayerChallengePage({super.key});
@@ -1866,7 +2045,15 @@ class _PrayerChallengePageState extends State<PrayerChallengePage> {
   Future<void> _load() async {
     final p = await SharedPreferences.getInstance();
     await chLoadSince(p);
-    final today = p.getStringList(_key) ?? [];
+    var today = p.getStringList(_key) ?? [];
+    if (_chIsNew(todayKey())) {
+      final valid = {for (int pi = 0; pi < challengePrayers.length; pi++) for (int i = 0; i < chItemsFor(pi).length; i++) chKey(pi, i)};
+      final cleaned = today.where(valid.contains).toList();
+      if (cleaned.length != today.length) {
+        today = cleaned;
+        await p.setStringList(_key, cleaned);
+      }
+    }
     final n = DateTime.now();
     int streak = 0;
     for (int i = 0; i < 1000; i++) {
@@ -1894,10 +2081,10 @@ class _PrayerChallengePageState extends State<PrayerChallengePage> {
     });
   }
 
-  bool _prayerDone(int pi) => [for (int i = 0; i < chItemsFor(pi).length; i++) _done.contains('$pi-$i')].every((e) => e);
+  bool _prayerDone(int pi) => [for (int i = 0; i < chItemsFor(pi).length; i++) _done.contains(chKey(pi, i))].every((e) => e);
 
   Future<void> _toggle(int pi, int ii) async {
-    final k = '$pi-$ii';
+    final k = chKey(pi, ii);
     final wasDone = _done.contains(k);
     final prayerWasDone = _prayerDone(pi);
     final dayWasDone = _done.length >= _total;
@@ -1932,11 +2119,10 @@ class _PrayerChallengePageState extends State<PrayerChallengePage> {
 
   Future<void> _open(int pi, int ii) async {
     final it = chItemsFor(pi)[ii];
-    final isWird = identical(it, saharWirdChItem);
-    final text = isWird ? saharWirdText : await rootBundle.loadString(it.asset);
+    final text = it.text ?? await rootBundle.loadString(it.asset);
     if (!mounted) return;
-    await Navigator.push(context, SoftRoute(builder: (_) => TextReaderPage(title: it.title, text: text, poem: it.poem, allCounts: isWird)));
-    if (!mounted || _done.contains('$pi-$ii')) return;
+    await Navigator.push(context, SoftRoute(builder: (_) => TextReaderPage(title: it.title, text: text, poem: it.poem, allCounts: it.allCounts)));
+    if (!mounted || _done.contains(chKey(pi, ii))) return;
     final m = ScaffoldMessenger.of(context);
     m.clearSnackBars();
     m.showSnackBar(SnackBar(
@@ -1994,7 +2180,7 @@ class _PrayerChallengePageState extends State<PrayerChallengePage> {
           Text('$n / $_total', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w900)),
         ]),
         SizedBox(height: 4),
-        Text('المسبعات والصلوات الدرديرية والمنظومة في السحر وبعد كل صلاة', style: TextStyle(color: Colors.white70, fontSize: 13, height: 1.5)),
+        Text('ورد السحر وحزب الإمام النووي في السحر، والمسبعات والدرديرية والمنظومة بعد كل صلاة', style: TextStyle(color: Colors.white70, fontSize: 13, height: 1.5)),
         SizedBox(height: 12),
         ClipRRect(
           borderRadius: BorderRadius.circular(10),
@@ -2021,7 +2207,7 @@ class _PrayerChallengePageState extends State<PrayerChallengePage> {
   Widget _itemRow(int pi, int ii) {
     final dark = isDark(context);
     final it = chItemsFor(pi)[ii];
-    final on = _done.contains('$pi-$ii');
+    final on = _done.contains(chKey(pi, ii));
     final ok = _ok(dark);
     return Padding(
       padding: EdgeInsets.only(top: 8),
@@ -2070,7 +2256,7 @@ class _PrayerChallengePageState extends State<PrayerChallengePage> {
     final dark = isDark(context);
     final idx = challengePrayers[pi];
     final done = _prayerDone(pi);
-    final cnt = [for (int i = 0; i < chItemsFor(pi).length; i++) _done.contains('$pi-$i')].where((e) => e).length;
+    final cnt = [for (int i = 0; i < chItemsFor(pi).length; i++) _done.contains(chKey(pi, i))].where((e) => e).length;
     final ok = _ok(dark);
     final line = done ? ok : gold;
     return Container(
@@ -2349,18 +2535,18 @@ class _ChallengeCalendarPageState extends State<ChallengeCalendarPage> {
                   SizedBox(width: 74, child: Text(challengePrayers[pi] == -1 ? 'السحر' : prayerNames[challengePrayers[pi]], style: TextStyle(fontSize: 15.5, fontWeight: FontWeight.w800, color: ink(ctx)))),
                   Expanded(
                     child: Wrap(spacing: 6, runSpacing: 6, children: [
-                      for (int i = 0; i < chItemsFor(pi).length; i++)
+                      for (int i = 0; i < chItemsForDay(pi, _dk(d)).length; i++)
                         Container(
                           padding: EdgeInsets.symmetric(horizontal: 9, vertical: 4),
                           decoration: BoxDecoration(
-                            color: list.contains('$pi-$i') ? ok.withOpacity(0.14) : Colors.transparent,
+                            color: list.contains(chKeyForDay(pi, i, _dk(d))) ? ok.withOpacity(0.14) : Colors.transparent,
                             borderRadius: BorderRadius.circular(14),
-                            border: Border.all(color: list.contains('$pi-$i') ? ok : gold.withOpacity(0.45)),
+                            border: Border.all(color: list.contains(chKeyForDay(pi, i, _dk(d))) ? ok : gold.withOpacity(0.45)),
                           ),
                           child: Row(mainAxisSize: MainAxisSize.min, children: [
-                            Icon(list.contains('$pi-$i') ? Icons.check_circle_rounded : Icons.radio_button_unchecked, size: 15, color: list.contains('$pi-$i') ? ok : ink(ctx).withOpacity(0.4)),
+                            Icon(list.contains(chKeyForDay(pi, i, _dk(d))) ? Icons.check_circle_rounded : Icons.radio_button_unchecked, size: 15, color: list.contains(chKeyForDay(pi, i, _dk(d))) ? ok : ink(ctx).withOpacity(0.4)),
                             SizedBox(width: 4),
-                            Text(_chShort[i], style: TextStyle(fontSize: 12.5, color: ink(ctx))),
+                            Text(chShortFor(pi, i, _dk(d)), style: TextStyle(fontSize: 12.5, color: ink(ctx))),
                           ]),
                         ),
                     ]),
@@ -3508,7 +3694,7 @@ class FontSettingsPage extends StatelessWidget {
               SizedBox(height: 20),
               TextButton.icon(onPressed: () => saveFont(FontCfg()), icon: Icon(Icons.restart_alt), label: Text('استرجاع الإعدادات الأصلية')),
               SizedBox(height: 6),
-              Text('الإعدادات تنطبق على المسبعات والصلوات الدرديرية والمنظومة وحزب البحر. أما كتاب الأوراد فصفحاته صور، فلا تتأثر بها.',
+              Text('الإعدادات تنطبق على المسبعات والصلوات الدرديرية والمنظومة وحزب البحر وحزب الإمام النووي. أما كتاب الأوراد فصفحاته صور، فلا تتأثر بها.',
                   textAlign: TextAlign.center, style: TextStyle(fontSize: 13, height: 1.6)),
             ]);
           },
@@ -4815,6 +5001,7 @@ bool _hasHighlight(String w) {
 
 // اسم "محمد" (بأي تشكيل أو تنوين، ومع و/ف/ب/ل/ك في أوله): أخضر فقط
 bool _isMuhammad(String w) {
+  if (w.contains('\u200C')) return false; // علامة استثناء: اسم محمد لغير النبي ﷺ
   final n = _normWord(w);
   if (n.length < 4) return false;
   for (int skip = 0; skip <= 2 && skip < n.length; skip++) {
@@ -5027,6 +5214,56 @@ class ThemeColorsPage extends StatelessWidget {
 }
 
 
+// سند طريق شيخنا (مضمّن داخل التطبيق)
+// علامة \u200C (غير مرئية) بعد اسم "محمد" تعني: لا يُلوَّن (هذا الاسم ليس للنبي ﷺ)
+const String sanadText = '''سند طريق شيخنا
+السيد عبد العليم عن والده السيد جودة، عن والده السيد عبد العليم، عن والده السيد مصطفى البكري، عن السيد جودة عبد المتعال رضي الله عنه، عن شيخه الشيخ أحمد الجندي الميموني، عن العالم العامل العارف بالله تعالى سيدي عبد العليم السنوهوري الفيومي، عن مالك الصغير أبي البركات سيدي أحمد الدرديري، عن سيدي محمد\u200C الحفني، عن سيدي مصطفى البكري الصديقي، عن الشيخ عبد اللطيف الحلبي الشامي، عن سيدي مصطفى أفندي الأردناوي، عن سيدي علي قرة باش أفندي، عن سيدي إسماعيل الحوروموي، عن سيدي عمر الفواودي، عن سيدي شعبان القسطنطوني، عن خير الدين التوقاتدي، عن جلي سلطان الإسترائي، عن سيدي محمد\u200C بهاء الدين الأندربيجاني، عن سيدي يحيى الباكوي، عن صدر الدين الخيالي، عن الحاج عن الدين، عن سيدي محمد\u200C بيرام الخلوتي، عن سيدي عمر الخلوتي، عن أخيه السيد محمد\u200C الخلوتي، عن إبراهيم الزاهد الكيلاني، عن جمال الدين التبريزي، عن شهاب الدين محمد\u200C النيساراني، عن ركن الدين محمد\u200C النحاشي، عن قطب الدين البهري، عن أبي النجيب السهروردي، عن عمر البكري، عن وجيه الدين القاضي، عن محمد\u200C البكري، عن محمد\u200C الدنيوري، عن كَشَاد الدنيوري، عن سيد الطائفة سيدي أبي القاسم الجنيد البغدادي، عن السري السقطي، عن معروف الكرخي، عن حبيب العجمي، عن داود الطائي، عن الحسن البصري، عن بطل الأبطال جدنا الأكبر علي بن أبي طالب كرم الله وجهه، عن سيد الأولين والآخرين سيدنا محمد بن عبد الله صلى الله عليه وسلم، عن سيدنا جبريل أمين الوحي عليه السلام، عن رب العزة عز وجل.''';
+
+// نص حزب الإمام النووي (مضمّن داخل التطبيق)
+const String hizbNawawiText = r'''حزب الإمام النووي رضي الله عنه
+
+أَعُوذُ بِاللَّهِ مِنَ الشَّيْطَانِ الرَّجِيمِ
+
+بِسْمِ اللَّهِ الرَّحْمَنِ الرَّحِيمِ
+
+بِسْمِ اللَّهِ اللَّهُ أَكْبَرُ اللَّهُ أَكْبَرُ اللَّهُ أَكْبَرُ أَقُولُ عَلَى نَفْسِي وَعَلَى دِينِي وَعَلَى أَهْلِي وَعَلَى أَوْلَادِي وَعَلَى مَالِي وَعَلَى أَصْحَابِي وَعَلَى أَدْيَانِهِمْ وَعَلَى أَمْوَالِهِمْ أَلْفَ بِسْمِ اللَّهِ.
+
+اللَّهُ أَكْبَرُ اللَّهُ أَكْبَرُ اللَّهُ أَكْبَرُ أَقُولُ عَلَى نَفْسِي وَعَلَى دِينِي وَعَلَى أَهْلِي وَعَلَى أَوْلَادِي وَعَلَى مَالِي وَعَلَى أَصْحَابِي وَعَلَى أَدْيَانِهِمْ وَعَلَى أَمْوَالِهِمْ أَلْفَ أَلْفِ بِسْمِ اللَّهِ.
+
+اللَّهُ أَكْبَرُ اللَّهُ أَكْبَرُ اللَّهُ أَكْبَرُ أَقُولُ عَلَى نَفْسِي وَعَلَى دِينِي وَعَلَى أَهْلِي وَعَلَى أَوْلَادِي وَعَلَى مَالِي وَعَلَى أَصْحَابِي وَعَلَى أَدْيَانِهِمْ وَعَلَى أَمْوَالِهِمْ أَلْفَ أَلْفَ أَلْفَ لَا حَوْلَ وَلَا قُوَّةَ إِلَّا بِاللَّهِ الْعَلِيِّ الْعَظِيمِ.
+
+بِسْمِ اللَّهِ وَبِاللَّهِ وَمِنَ اللَّهِ وَإِلَى اللَّهِ وَعَلَى اللَّهِ وَفِي اللَّهِ وَلَا حَوْلَ وَلَا قُوَّةَ إِلَّا بِاللَّهِ الْعَلِيِّ الْعَظِيمِ.
+
+بِسْمِ اللَّهِ عَلَى دِينِي وَعَلَى نَفْسِي وَعَلَى أَوْلَادِي، بِسْمِ اللَّهِ عَلَى مَالِي وَعَلَى أَهْلِي، بِسْمِ اللَّهِ عَلَى كُلِّ شَيْءٍ أَعْطَانِيهِ رَبِّي، بِسْمِ اللَّهِ رَبِّ السَّمَوَاتِ السَّبْعِ وَرَبِّ الْأَرَضِينَ السَّبْعِ وَرَبِّ الْعَرْشِ الْعَظِيمِ.
+
+بِسْمِ اللَّهِ الَّذِي لَا يَضُرُّ مَعَ اسْمِهِ شَيْءٌ فِي الْأَرْضِ وَلَا فِي السَّمَاءِ وَهُوَ السَّمِيعُ الْعَلِيمُ (ثَلَاثًا).
+
+بِسْمِ اللَّهِ خَيْرِ الْأَسْمَاءِ فِي الْأَرْضِ وَفِي السَّمَاءِ، بِسْمِ اللَّهِ أَفْتَتِحُ وَبِهِ أَخْتَتِمُ، اللَّهُ اللَّهُ اللَّهُ، اللَّهُ رَبِّي لَا أُشْرِكُ بِهِ شَيْئًا، اللَّهُ اللَّهُ اللَّهُ، اللَّهُ رَبِّي لَا إِلَهَ إِلَّا اللَّهُ، اللَّهُ أَعَزُّ وَأَجَلُّ وَأَكْبَرُ مِمَّا أَخَافُ وَأَحْذَرُ (ثَلَاثًا).
+
+وَأَحْذَرُ اللَّهُمَّ أَعُوذُ مِنْ شَرِّ نَفْسِي، وَمِنْ شَرِّ غَيْرِي، وَمِنْ شَرِّ مَا خَلَقَ رَبِّي وَذَرَأَ وَبَرَأَ، وَبِكَ اللَّهُمَّ أَحْتَرِزُ مِنْهُمْ، وَبِكَ اللَّهُمَّ أَعُوذُ مِنْ شُرُورِهِمْ، وَبِكَ اللَّهُمَّ أَدْرَأُ فِي نُحُورِهِمْ وَأَقْدَمُ بَيْنَ يَدَيَّ وَأَيْدِيهِمْ.
+
+بِسْمِ اللَّهِ الرَّحْمَنِ الرَّحِيمِ
+
+قُلْ هُوَ اللَّهُ أَحَدٌ ۝ اللَّهُ الصَّمَدُ ۝ لَمْ يَلِدْ وَلَمْ يُولَدْ ۝ وَلَمْ يَكُنْ لَهُ كُفُوًا أَحَدٌ (ثَلَاثًا).
+
+وَمِثْلُ ذَلِكَ عَنْ يَمِينِي وَأَيْمَانِهِمْ، وَمِثْلُ ذَلِكَ عَنْ شِمَالِي وَعَنْ شَمَائِلِهِمْ، وَمِثْلُ ذَلِكَ أَمَامِي وَأَمَامِهِمْ، وَمِثْلُ ذَلِكَ مِنْ خَلْفِي وَمِنْ خَلْفِهِمْ، وَمِثْلُ ذَلِكَ مِنْ فَوْقِي وَمِنْ فَوْقِهِمْ، وَمِثْلُ ذَلِكَ مِنْ تَحْتِي وَمِنْ تَحْتِهِمْ، وَمِثْلُ ذَلِكَ مُحِيطٌ بِي وَبِهِمْ.
+
+اللَّهُمَّ إِنِّي أَسْأَلُكَ لِي وَلَهُمْ مِنْ خَيْرِكَ بِخَيْرِكَ الَّذِي لَا يَمْلِكُهُ غَيْرُكَ، اللَّهُمَّ اجْعَلْنِي وَإِيَّاهُمْ فِي عِبَادِكَ وَعِيَاذِكَ وَجِوَارِكَ وَأَمَانِكَ وَحِزْبِكَ وَحِرْزِكَ وَكَنَفِكَ مِنْ شَرِّ كُلِّ شَيْطَانٍ وَسُلْطَانٍ وَإِنْسٍ وَجَانٍّ وَبَاغٍ وَحَاسِدٍ وَسَبُعٍ وَحَيَّةٍ وَعَقْرَبٍ، وَمِنْ شَرِّ كُلِّ دَابَّةٍ أَنْتَ آخِذٌ بِنَاصِيَتِهَا، إِنَّ رَبِّي عَلَى صِرَاطٍ مُسْتَقِيمٍ.
+
+حَسْبِيَ الرَّبُّ مِنَ الْمَرْبُوبِينَ، حَسْبِيَ الْخَالِقُ مِنَ الْمَخْلُوقِينَ، حَسْبِيَ الرَّازِقُ مِنَ الْمَرْزُوقِينَ، حَسْبِيَ السَّاتِرُ مِنَ الْمَسْتُورِينَ، حَسْبِيَ النَّاصِرُ مِنَ الْمَنْصُورِينَ، حَسْبِيَ الْقَاهِرُ مِنَ الْمَقْهُورِينَ، حَسْبِيَ الَّذِي هُوَ حَسْبِي، حَسْبِي مَنْ لَمْ يَزَلْ حَسْبِي، حَسْبِيَ اللَّهُ وَنِعْمَ الْوَكِيلُ، حَسْبِيَ اللَّهُ مِنْ جَمِيعِ خَلْقِهِ.
+
+إِنَّ وَلِيِّيَ اللَّهُ الَّذِي نَزَّلَ الْكِتَابَ وَهُوَ يَتَوَلَّى الصَّالِحِينَ.
+
+وَإِذَا قَرَأْتَ الْقُرْآنَ جَعَلْنَا بَيْنَكَ وَبَيْنَ الَّذِينَ لَا يُؤْمِنُونَ بِالْآخِرَةِ حِجَابًا مَسْتُورًا ۝ وَجَعَلْنَا عَلَى قُلُوبِهِمْ أَكِنَّةً أَنْ يَفْقَهُوهُ وَفِي آذَانِهِمْ وَقْرًا ۝ وَإِذَا ذَكَرْتَ رَبَّكَ فِي الْقُرْآنِ وَحْدَهُ وَلَّوْا عَلَى أَدْبَارِهِمْ نُفُورًا.
+
+فَإِنْ تَوَلَّوْا فَقُلْ حَسْبِيَ اللَّهُ لَا إِلَهَ إِلَّا هُوَ عَلَيْهِ تَوَكَّلْتُ وَهُوَ رَبُّ الْعَرْشِ الْعَظِيمِ (سَبْعًا).
+
+وَلَا حَوْلَ وَلَا قُوَّةَ إِلَّا بِاللَّهِ الْعَلِيِّ الْعَظِيمِ (ثَلَاثًا)، وَصَلَّى اللَّهُ عَلَى سَيِّدِنَا مُحَمَّدٍ وَعَلَى آلِهِ وَصَحْبِهِ وَسَلَّمَ.
+
+(ثُمَّ يَتْفُلُ التَّالِي عَنْ يَمِينِهِ وَشِمَالِهِ وَأَمَامِهِ وَخَلْفِهِ ثَلَاثًا، ثُمَّ يَقُولُ:)
+
+خَبَّأْتُ نَفْسِي فِي خَزَائِنِ بِسْمِ اللَّهِ، أَقْفَالُهَا ثِقَتِي بِاللَّهِ، مَفَاتِيحُهَا لَا قُوَّةَ إِلَّا بِاللَّهِ، أُدَافِعُ بِكَ اللَّهُمَّ عَنْ نَفْسِي وَأَنْفُسِهِمْ مَا أُطِيقُ وَمَا لَا أُطِيقُ، لَا طَاقَةَ لِمَخْلُوقٍ مَعَ قُدْرَةِ الْخَالِقِ، حَسْبِيَ اللَّهُ وَنِعْمَ الْوَكِيلُ، وَلَا حَوْلَ وَلَا قُوَّةَ إِلَّا بِاللَّهِ الْعَلِيِّ الْعَظِيمِ، وَصَلَّى اللَّهُ عَلَى سَيِّدِنَا مُحَمَّدٍ وَعَلَى آلِهِ وَصَحْبِهِ وَسَلَّمَ (ثَلَاثًا).''';
+
 // نص حزب البحر (مضمّن داخل التطبيق)
 const String duaKhatmText = r'''دعاء الختام
 اللَّهُمَّ صَلِّ وَسَلِّمْ عَلَى سَيِّدِنَا مُحَمَّدٍ فِي الأَوَّلِينَ وَصَلِّ وَسَلِّمْ عَلَى سَيِّدِنَا مُحَمَّدٍ فِي الآخِرِينَ وَصَلِّ وَسَلِّمْ عَلَى سَيِّدِنَا مُحَمَّدٍ فِي كُلِّ وَقْتٍ وَحِينٍ وَصَلِّ وَسَلِّمْ عَلَى سَيِّدِنَا مُحَمَّدٍ فِي المَلَإِ الأَعْلَى إِلَى يَوْمِ الدِّينِ وَصَلِّ وَسَلِّمْ عَلَى جَمِيعِ الأَنْبِيَاءِ وَالمُرْسَلِينَ وَعَلَى المَلَائِكَةِ المُقَرَّبِينَ وَعَلَى عِبَادِ اللهِ الصَّالِحِينَ مِنْ أَهْلِ السَّمَاوَاتِ وَأَهْلِ الأَرَضِينَ وَرَضِيَ اللهُ تَبَارَكَ وَتَعَالَى عَنْ سَادَاتِنَا ذَوِي القَدْرِ الجَلِيِّ أَبِي بَكْرٍ وَعُمَرَ وَعُثْمَانَ وَعَلِيٍّ وَعَنْ سَائِرِ أَصْحَابِ رَسُولِ اللهِ ﷺ أَجْمَعِينَ وَالتَّابِعِينَ لَهُمْ بِإِحْسَانٍ إِلَى يَوْمِ الدِّينِ وَاحْشُرْنَا وَارْحَمْنَا مَعَهُمْ بِرَحْمَتِكَ يَا أَرْحَمَ الرَّاحِمِينَ يَا اللهُ يَا حَيُّ يَا قَيُّومُ لَا إِلَهَ إِلَّا أَنْتَ يَا اللهُ يَا رَبَّنَا يَا وَاسِعَ المَغْفِرَةِ يَا أَرْحَمَ الرَّاحِمِينَ اللَّهُمَّ آمِينَ.''';
@@ -5099,6 +5336,97 @@ class _TwinklePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _TwinklePainter old) => old.t != t || old.color != color;
+}
+
+// زر "سند طريق شيخنا" في الرئيسية: بطاقة فاخرة تفتح صفحة السند
+class SanadButton extends StatefulWidget {
+  const SanadButton({super.key});
+  @override
+  State<SanadButton> createState() => _SanadButtonState();
+}
+
+class _SanadButtonState extends State<SanadButton> {
+  bool _down = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = isDark(context);
+    const goldLight = Color(0xFFF2DE9F);
+    final radius = BorderRadius.circular(26);
+    return Padding(
+      padding: EdgeInsets.symmetric(horizontal: 16),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTapDown: (_) => setState(() => _down = true),
+        onTapUp: (_) => setState(() => _down = false),
+        onTapCancel: () => setState(() => _down = false),
+        onTap: () {
+          HapticFeedback.selectionClick();
+          openTextString(context, 'سند طريق شيخنا', sanadText);
+        },
+        child: AnimatedScale(
+          scale: _down ? 0.975 : 1.0,
+          duration: Duration(milliseconds: 130),
+          curve: Curves.easeOut,
+          child: Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(begin: Alignment.topRight, end: Alignment.bottomLeft, colors: dark ? [deepDark, deepGreen] : [deepGreen, green]),
+              borderRadius: radius,
+              border: Border.all(color: gold.withOpacity(_down ? 1.0 : 0.85), width: 1.4),
+              boxShadow: [BoxShadow(color: (dark ? Colors.black : green).withOpacity(0.35), blurRadius: _down ? 8 : 16, offset: Offset(0, _down ? 3 : 7))],
+            ),
+            child: ClipRRect(
+              borderRadius: radius,
+              child: Stack(children: [
+                Positioned.fill(child: CustomPaint(painter: StarPatternPainter(gold.withOpacity(0.10)))),
+                // لمعة قطرية ناعمة
+                Positioned.fill(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(begin: Alignment(1, -1), end: Alignment(-1, 1), colors: [Colors.white.withOpacity(0.13), Colors.transparent], stops: [0.0, 0.5]),
+                    ),
+                  ),
+                ),
+                Padding(
+                  padding: EdgeInsets.fromLTRB(14, 14, 16, 14),
+                  child: Row(children: [
+                    Container(
+                      width: 58,
+                      height: 58,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        gradient: RadialGradient(colors: [Color(0xFFFBEFC3), gold]),
+                        border: Border.all(color: Colors.white.withOpacity(0.9), width: 1.6),
+                        boxShadow: [BoxShadow(color: gold.withOpacity(0.6), blurRadius: 12, spreadRadius: 1)],
+                      ),
+                      child: Transform.rotate(angle: -0.785398, child: Icon(Icons.link_rounded, size: 31, color: deepGreen)),
+                    ),
+                    SizedBox(width: 14),
+                    Expanded(
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+                        Text(
+                          'سند طريق شيخنا',
+                          style: TextStyle(fontFamily: 'Rsail', fontSize: 26, fontWeight: FontWeight.w700, height: 1.4, color: goldLight, shadows: [Shadow(color: Colors.black.withOpacity(0.35), blurRadius: 6, offset: Offset(0, 2))]),
+                        ),
+                        Text('سلسلة الإسناد المتصلة إلى رسول الله ﷺ', style: TextStyle(fontSize: 13, height: 1.5, color: Colors.white70)),
+                      ]),
+                    ),
+                    SizedBox(width: 8),
+                    Container(
+                      width: 38,
+                      height: 38,
+                      decoration: BoxDecoration(shape: BoxShape.circle, color: gold.withOpacity(0.18), border: Border.all(color: gold.withOpacity(0.8))),
+                      child: Icon(Icons.arrow_back_ios_new_rounded, size: 16, color: goldLight),
+                    ),
+                  ]),
+                ),
+              ]),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class ThanksCard extends StatefulWidget {
