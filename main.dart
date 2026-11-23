@@ -9,7 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 const silver = Color(0xFFE8ECEB);
 const gold = Color(0xFFC6A75E);
 
-// فرق ترقيم: لو صفحة الفهرس تفتح قبل/بعد الصفحة الصحيحة بعدد ثابت غيّري هذا الرقم
+// فرق ترقيم: لو صفحة الفهرس تفتح قبل/بعد الصفحة الصحيحة بعدد ثابت غيّر هذا الرقم
 const int pageOffset = 0;
 
 bool isDark(BuildContext c) => Theme.of(c).brightness == Brightness.dark;
@@ -55,6 +55,9 @@ Future<void> saveFont(FontCfg c) async {
 
 final RegExp _tashkeelRe = RegExp('[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06DC\u06DF-\u06E8\u06EA-\u06ED]');
 String stripTashkeel(String t) => t.replaceAll(_tashkeelRe, '');
+
+// جملة الفصل بين ختم الصبح وختم باقي الفروض (تُعرض بتصميم خاص ويُنتقل إليها بزر)
+bool isSplitNote(String t) => stripTashkeel(t).contains('ما يلي تكملة ختم');
 
 
 TextStyle bodyStyle(BuildContext c) {
@@ -1380,7 +1383,7 @@ class _SaharItem {
   const _SaharItem(this.title, this.subtitle, this.asset, this.poem, this.icon, {this.text});
 }
 
-// الترتيب كما يُقرأ. ضعي ملف النص في assets/texts بنفس الاسم (السطر الأول عنوان، وفي القصائد كل بيت سطران)
+// الترتيب كما يُقرأ. ضع ملف النص في assets/texts بنفس الاسم (السطر الأول عنوان، وفي القصائد كل بيت سطران)
 const List<_SaharItem> saharItems = [
   _SaharItem('المقدمة', 'مقدمة ورد السحر', 'assets/texts/sahar_muqaddima.txt', false, Icons.auto_stories, text: saharMuqaddimaText),
   _SaharItem('ورد السحر', 'النص كاملاً', 'assets/texts/sahar_wird.txt', false, Icons.nightlight_round, text: saharWirdText),
@@ -1933,7 +1936,7 @@ class TileDesignPage extends StatelessWidget {
         body: ValueListenableBuilder<int>(
           valueListenable: tileDesign,
           builder: (context, sel, _) => ListView(padding: EdgeInsets.all(16), children: [
-            Text('اختاري تصميماً لأقسام صفحتي الأوراد والمسبحة، وسيتغيّر في الصفحتين فوراً.', textAlign: TextAlign.center, style: TextStyle(fontSize: 15, height: 1.7)),
+            Text('اختر تصميماً لأقسام صفحتي الأوراد والمسبحة، وسيتغيّر في الصفحتين فوراً.', textAlign: TextAlign.center, style: TextStyle(fontSize: 15, height: 1.7)),
             SizedBox(height: 16),
             for (int i = 0; i < tileDesignNames.length; i++) ...[
               Row(children: [
@@ -2620,7 +2623,7 @@ class _ChallengeCalendarPageState extends State<ChallengeCalendarPage> {
               SizedBox(height: 10),
               _grid(),
               SizedBox(height: 8),
-              Text('كل يوم يتلوّن بقدر ما أتممتِ (من ${chNeed(todayKey())} خانة)، والنجمة تعني يوماً كاملاً. اضغطي على أي يوم لتفاصيله.', textAlign: TextAlign.center, style: TextStyle(fontSize: 12.5, height: 1.7, color: ink(context).withOpacity(0.6))),
+              Text('كل يوم يتلوّن بقدر ما أتممتَ (من ${chNeed(todayKey())} خانة)، والنجمة تعني يوماً كاملاً. اضغط على أي يوم لتفاصيله.', textAlign: TextAlign.center, style: TextStyle(fontSize: 12.5, height: 1.7, color: ink(context).withOpacity(0.6))),
               SizedBox(height: 22),
               Text('الأوسمة', textAlign: TextAlign.center, style: TextStyle(fontFamily: 'Rsail', fontSize: 28, height: 1.5, color: accent(context), fontWeight: FontWeight.w700)),
               SizedBox(height: 10),
@@ -2762,7 +2765,7 @@ class _TextReaderPageState extends State<TextReaderPage> {
         content: Text(_boxTargets.isEmpty ? 'سيبدأ النص من أوله لقراءة جديدة، والقراءة السابقة تبقى محفوظة في سجل الإنجازات.' : 'سيتم تصفير عدّ كل الصناديق، والقراءة السابقة تبقى محفوظة في سجل الإنجازات.'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text('إلغاء')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text('ابدئي')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text('ابدأ')),
         ],
       ),
     );
@@ -2876,6 +2879,87 @@ class _TextReaderPageState extends State<TextReaderPage> {
 
   GlobalKey _key(int i) => keys.putIfAbsent(i, () => GlobalKey());
 
+  // شريط صغير تحت شريط مدة القراءة: زر ينقل القارئ إلى جملة «ما يلي تكملة ختم الصبح…»
+  Widget _jumpBar(int idx, int count) => Container(
+        width: double.infinity,
+        padding: EdgeInsets.fromLTRB(12, 0, 12, 8),
+        decoration: BoxDecoration(
+          color: isDark(context) ? darkTint(0.22) : deepGreen,
+          border: Border(bottom: BorderSide(color: gold.withOpacity(0.7), width: 1.2)),
+        ),
+        child: Align(
+          alignment: AlignmentDirectional.centerStart,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(20),
+            onTap: () {
+              _stopAuto();
+              HapticFeedback.selectionClick();
+              _scrollToIndex(idx, count);
+            },
+            child: Container(
+              padding: EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+              decoration: BoxDecoration(
+                color: gold.withOpacity(0.16),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: gold, width: 1.2),
+              ),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                Icon(Icons.south_rounded, size: 18, color: Color(0xFFE6D19A)),
+                SizedBox(width: 6),
+                Text('الانتقال إلى ختم باقي الفروض', style: TextStyle(color: Colors.white, fontSize: 14.5, fontWeight: FontWeight.w700)),
+              ]),
+            ),
+          ),
+        ),
+      );
+
+  Widget _noteOrnament() => Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+        Container(width: 54, height: 1.4, color: gold.withOpacity(0.8)),
+        SizedBox(width: 8),
+        Transform.rotate(angle: math.pi / 4, child: Container(width: 9, height: 9, color: gold)),
+        SizedBox(width: 8),
+        Container(width: 54, height: 1.4, color: gold.withOpacity(0.8)),
+      ]);
+
+  // تصميم خاص لجملة الفصل: إطار ذهبي مزدوج، خط أكبر وأثقل، وزخارف أعلى وأسفل
+  Widget _splitNote(String raw, TextStyle st) {
+    var s = raw.trim();
+    if (s.startsWith('(')) s = s.substring(1);
+    if (s.endsWith(')')) s = s.substring(0, s.length - 1);
+    s = s.trim();
+    final dark = isDark(context) || paperMode.value == 3;
+    final ac = dark ? Color(0xFFE6D19A) : deepGreen;
+    return Container(
+      margin: EdgeInsets.symmetric(vertical: 10),
+      padding: EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(begin: Alignment.topRight, end: Alignment.bottomLeft, colors: [gold.withOpacity(dark ? 0.34 : 0.30), gold.withOpacity(dark ? 0.12 : 0.10)]),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: gold, width: 1.8),
+        boxShadow: [BoxShadow(color: gold.withOpacity(0.25), blurRadius: 14, offset: Offset(0, 4))],
+      ),
+      child: Container(
+        padding: EdgeInsets.symmetric(horizontal: 14, vertical: 16),
+        decoration: BoxDecoration(
+          color: dark ? Color(0x33000000) : Color(0xCCFFFFFF),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: gold.withOpacity(0.6), width: 1),
+        ),
+        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          _noteOrnament(),
+          SizedBox(height: 12),
+          Text(
+            s,
+            textAlign: TextAlign.center,
+            style: TextStyle(fontFamily: 'Rsail', fontSize: (st.fontSize ?? 21) * 1.3, height: 1.7, fontWeight: FontWeight.w800, color: ac),
+          ),
+          SizedBox(height: 12),
+          _noteOrnament(),
+        ]),
+      ),
+    );
+  }
+
   void _msg(String m) {
     final sm = ScaffoldMessenger.of(context);
     sm.hideCurrentSnackBar();
@@ -2902,6 +2986,10 @@ class _TextReaderPageState extends State<TextReaderPage> {
       _msg('اضغط ضغطة طويلة على أي سطر لوضع علامة مكان التوقف');
       return;
     }
+    await _scrollToIndex(i, count);
+  }
+
+  Future<void> _scrollToIndex(int i, int count) async {
     for (int attempt = 0; attempt < 12; attempt++) {
       if (!mounted) return;
       final ctx = keys[i]?.currentContext;
@@ -2962,6 +3050,7 @@ class _TextReaderPageState extends State<TextReaderPage> {
     }
     final dark = isDark(context) || paperMode.value == 3;
     final count = widget.poem ? (body.length + 1) ~/ 2 : body.length;
+    final noteIdx = widget.poem ? -1 : body.indexWhere(isSplitNote);
     final hasMark = bm >= 0 && bm < count;
 
     final appBar = AppBar(
@@ -3071,6 +3160,18 @@ class _TextReaderPageState extends State<TextReaderPage> {
                       iconSize: 16,
                       child: KashidaParagraph(text: text, style: st),
                     );
+                if (idx == noteIdx) {
+                  return Column(children: [
+                    markWrap(
+                      key: _key(idx),
+                      marked: hasMark && bm == idx,
+                      onLongPress: () => _toggle(idx),
+                      iconSize: 16,
+                      child: _splitNote(body[idx], st),
+                    ),
+                    divider,
+                  ]);
+                }
                 final sp = splits[idx];
                 if (sp == null) {
                   return Column(children: [line(idx, body[idx]), divider]);
@@ -3092,7 +3193,7 @@ class _TextReaderPageState extends State<TextReaderPage> {
               }
     return Scaffold(
       appBar: appBar,
-      body: Column(children: [ReadingTimerBar(title: widget.title), Expanded(child: _withAutoBar(Container(
+      body: Column(children: [ReadingTimerBar(title: widget.title), if (noteIdx >= 0) _jumpBar(noteIdx, count), Expanded(child: _withAutoBar(Container(
         decoration: bg,
         child: Padding(
           padding: EdgeInsets.all(10),
@@ -3115,7 +3216,7 @@ class _TextReaderPageState extends State<TextReaderPage> {
   }
 }
 
-// شريط واقف على اليمين يبيّن موضع القراءة بدقة: الجزء المضيء هو الباقي ويقصر كلما قرأتِ، والكبسولة عند موضع القراءة
+// شريط واقف على اليمين يبيّن موضع القراءة بدقة: الجزء المضيء هو الباقي ويقصر كلما قرأتَ، والكبسولة عند موضع القراءة
 class _ReadProgressBar extends StatefulWidget {
   final ScrollController controller;
   final bool dark;
@@ -3373,7 +3474,7 @@ class _BookIndexPageState extends State<BookIndexPage> {
         onChanged: (v) => setState(() => q = v),
         textInputAction: TextInputAction.search,
         decoration: InputDecoration(
-          hintText: 'ابحثي بعنوان الموضوع أو رقم الصفحة',
+          hintText: 'ابحث بعنوان الموضوع أو رقم الصفحة',
           prefixIcon: Icon(Icons.search_rounded, color: gold),
           suffixIcon: q.isEmpty
               ? null
@@ -3782,7 +3883,7 @@ class MorePage extends StatelessWidget {
           ListTile(
             leading: Icon(Icons.dashboard_customize_rounded, color: green),
             title: Text('تغيير التصميم'),
-            subtitle: Text('اختاري تصميم أقسام صفحتي الأوراد والمسبحة من عشرة تصاميم'),
+            subtitle: Text('اختر تصميم أقسام صفحتي الأوراد والمسبحة من عشرة تصاميم'),
             trailing: Icon(Icons.chevron_left, color: green),
             onTap: () => Navigator.push(context, SoftRoute(builder: (_) => TileDesignPage())),
           ),
@@ -6120,7 +6221,7 @@ class _ReadingTimerBarState extends State<ReadingTimerBar> {
   @override
   void dispose() {
     tick?.cancel();
-    // لو خرجتِ من الصفحة وفيها وقت لم يُحفظ بعد، يُحفظ تلقائياً في السجل
+    // لو خرجتَ من الصفحة وفيها وقت لم يُحفظ بعد، يُحفظ تلقائياً في السجل
     if (sw.elapsed.inSeconds >= 5) addReadLog(widget.title, sw.elapsed.inSeconds);
     super.dispose();
   }
