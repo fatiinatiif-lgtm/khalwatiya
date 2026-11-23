@@ -56,6 +56,9 @@ Future<void> saveFont(FontCfg c) async {
 final RegExp _tashkeelRe = RegExp('[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06DC\u06DF-\u06E8\u06EA-\u06ED]');
 String stripTashkeel(String t) => t.replaceAll(_tashkeelRe, '');
 
+// النجمة المفردة * فاصل بين الآيات: تُستبدل بعلامة الآية ۝ (تُرسم نجمة مزخرفة)، أما النجمتان فأكثر (مثل ** بعد آمين) فتُحذف
+String stripStars(String t) => t.contains('*') ? t.replaceAll(RegExp(r'\*{2,}'), '').replaceAll('*', '\u06DD').replaceAll(RegExp('[ \\t]{2,}'), ' ') : t;
+
 // جملة الفصل بين ختم الصبح وختم باقي الفروض (تُعرض بتصميم خاص ويُنتقل إليها بزر)
 bool isSplitNote(String t) => stripTashkeel(t).contains('ما يلي تكملة ختم');
 
@@ -3032,7 +3035,8 @@ class _TextReaderPageState extends State<TextReaderPage> {
       );
 
   Widget _page(BuildContext context, FontCfg cfg) {
-    final t = cfg.tashkeel ? widget.text : stripTashkeel(widget.text);
+    final srcText = stripStars(widget.text);
+    final t = cfg.tashkeel ? srcText : stripTashkeel(srcText);
     final lines = t.split('\n').map((l) => l.trim()).where((l) => l.isNotEmpty).toList();
     final heading = lines.isNotEmpty ? lines.first : widget.title;
     // سطر ينتهي بالرمز غير المرئي U+2060 يُعرض بلا فاصل بعده (ليتصل بما يليه)
@@ -5108,8 +5112,31 @@ List<int> kashidaSlots(String s) {
   return out;
 }
 
-double _measure(TextStyle st, String t) {
-  final tp = TextPainter(text: TextSpan(text: t, style: st), textDirection: TextDirection.rtl)..layout();
+// علامة الآية تُرسم في الصفحة كعنصر (WidgetSpan) بعرض يختلف عن عرض حرف ۝ في الخط،
+// لذلك تُستبدل عند القياس بحرف نائب U+FFFC بنفس المقاس الفعلي، وإلا يخطئ الضبط وتخرج الأسطر عن الإطار.
+const String _phChar = '\uFFFC';
+
+Size _ayahMarkSize(TextStyle st, String? num) {
+  final d = (st.fontSize ?? 20) * 1.1;
+  return Size(d + 6, d); // +6 = الحشوة الأفقية حول العلامة؛ المقاس ثابت أياً كان الرقم
+}
+
+TextPainter _painterFor(String t, TextStyle st, List<Size> ph) {
+  final parts = t.split(_phChar);
+  final spans = <InlineSpan>[];
+  for (int i = 0; i < parts.length; i++) {
+    if (parts[i].isNotEmpty) spans.add(TextSpan(text: parts[i]));
+    if (i < parts.length - 1) spans.add(WidgetSpan(alignment: PlaceholderAlignment.middle, child: SizedBox()));
+  }
+  final tp = TextPainter(text: TextSpan(style: st, children: spans), textDirection: TextDirection.rtl);
+  if (parts.length > 1) {
+    tp.setPlaceholderDimensions([for (int i = 0; i < parts.length - 1; i++) PlaceholderDimensions(size: ph[i], alignment: PlaceholderAlignment.middle)]);
+  }
+  return tp;
+}
+
+double _measure(TextStyle st, String t, [List<Size> ph = const []]) {
+  final tp = _painterFor(t, st, ph)..layout();
   final w = tp.width;
   tp.dispose();
   return w;
@@ -5163,8 +5190,8 @@ String _applyKashida(String s, List<int> slots, List<int> cnt) {
   return b.toString();
 }
 
-String justifyLineKashida(String line, TextStyle st, double maxW, double tw, {int cap = 3}) {
-  final nat = _measure(st, line);
+String justifyLineKashida(String line, TextStyle st, double maxW, double tw, {int cap = 3, List<Size> ph = const []}) {
+  final nat = _measure(st, line, ph);
   final deficit = maxW - nat;
   if (deficit < tw * 0.8) return line;
   final slots = kashidaSlots(line);
@@ -5173,7 +5200,7 @@ String justifyLineKashida(String line, TextStyle st, double maxW, double tw, {in
   final cnt = _spread(m, math.min((deficit / tw).floor(), cap * m), cap);
   var res = _applyKashida(line, slots, cnt);
   for (int it = 0; it < 4; it++) {
-    final cw = _measure(st, res);
+    final cw = _measure(st, res, ph);
     final used = cnt.fold<int>(0, (a, b) => a + b);
     final eff = used > 0 ? (cw - nat) / used : tw;
     if (eff < 1) break;
@@ -5187,7 +5214,7 @@ String justifyLineKashida(String line, TextStyle st, double maxW, double tw, {in
     res = _applyKashida(line, slots, cnt);
   }
   int guard = 0;
-  while (_measure(st, res) > maxW && guard < 40) {
+  while (_measure(st, res, ph) > maxW && guard < 40) {
     if (cnt.fold<int>(0, (a, b) => a + b) == 0) return line;
     _adjust(cnt, -1, cap);
     res = _applyKashida(line, slots, cnt);
@@ -5203,11 +5230,19 @@ List<String> kashidaLines(String text, TextStyle st, double maxW) {
   final key = '${text.hashCode}|${text.length}|${maxW.toStringAsFixed(1)}|${st.fontSize}|${st.fontFamily}|${st.wordSpacing}|${st.fontWeight}';
   final hit = _kCache[key];
   if (hit != null) return hit;
-  final tp = TextPainter(text: TextSpan(text: text, style: st), textDirection: TextDirection.rtl)..layout(maxWidth: maxW);
+  final marks = <String>[];
+  final phSizes = <Size>[];
+  final norm = text.replaceAllMapped(_ayahMarkRe, (m) {
+    marks.add(m.group(0)!);
+    phSizes.add(_ayahMarkSize(st, m.group(1)));
+    return _phChar;
+  });
+  final tp = _painterFor(norm, st, phSizes)..layout(maxWidth: maxW);
   final ranges = <TextRange>[];
   int pos = 0;
   int guard = 0;
-  while (pos < text.length && guard < 1000) {
+  while (pos < norm.length) {
+    if (guard >= 1000) break;
     final r = tp.getLineBoundary(TextPosition(offset: pos));
     if (r.end <= pos) break;
     ranges.add(r);
@@ -5215,14 +5250,18 @@ List<String> kashidaLines(String text, TextStyle st, double maxW) {
     guard++;
   }
   tp.dispose();
-  if (pos < text.length) ranges.add(TextRange(start: pos, end: text.length));
+  if (pos < norm.length) ranges.add(TextRange(start: pos, end: norm.length));
   final tw = _measure(st, '\u0640' * 10) / 10;
   final out = <String>[];
   for (int i = 0; i < ranges.length; i++) {
-    var line = text.substring(ranges[i].start, ranges[i].end).trim();
+    var line = norm.substring(ranges[i].start, ranges[i].end).trim();
+    final before = _phChar.allMatches(norm.substring(0, ranges[i].start)).length;
+    final inLine = _phChar.allMatches(line).length;
     if (i < ranges.length - 1 && line.isNotEmpty && tw > 0.5) {
-      line = justifyLineKashida(line, st, maxW, tw);
+      line = justifyLineKashida(line, st, maxW, tw, ph: phSizes.sublist(before, before + inLine));
     }
+    var k = before;
+    line = line.replaceAllMapped(_phChar, (_) => marks[k++]);
     out.add(line);
   }
   if (_kCache.length > 3000) _kCache.clear();
@@ -5237,7 +5276,7 @@ class KashidaParagraph extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => LayoutBuilder(builder: (context, box) {
-        final lines = kashidaLines(text, style, box.maxWidth - 1);
+        final lines = kashidaLines(stripStars(text).trim(), style, box.maxWidth - 2);
         return Padding(
           padding: EdgeInsets.only(bottom: 6),
           child: Column(
@@ -5337,35 +5376,68 @@ TextStyle muhammadStyle(BuildContext c, TextStyle st) {
 }
 
 // علامة نهاية الآية ۝ أو رقم الآية ﴿1﴾: تُرسم كدائرة مزخرفة داخل التطبيق حتى لا تظهر مربعاً فارغاً لو الخط لا يحتويها
-final RegExp _ayahMarkRe = RegExp('\u06DD|\uFD3E\\s*([0-9\u0660-\u0669]+)\\s*\uFD3F');
+final RegExp _ayahMarkRe = RegExp('\u06DD|[\uFD3E\uFD3F]\\s*([0-9\u0660-\u0669]+)\\s*[\uFD3E\uFD3F]');
 
 InlineSpan _ayahMark(BuildContext context, TextStyle st, String? num) {
-  final fs = st.fontSize ?? 20;
-  final d = fs * 0.95;
-  final round = num == null || num.length <= 2;
-  final w = num == null ? d * 0.85 : (round ? d : d * 0.5 + num.length * d * 0.34);
+  final d = _ayahMarkSize(st, num).height;
+  final dark = isDark(context);
+  final len = num?.length ?? 0;
+  final fsz = len <= 2 ? d * 0.40 : (len == 3 ? d * 0.31 : d * 0.25);
   final Widget inner = num == null
-      ? Container(width: d * 0.2, height: d * 0.2, decoration: BoxDecoration(color: gold, shape: BoxShape.circle))
-      : Text(num, textDirection: TextDirection.ltr, style: TextStyle(fontSize: d * 0.52, height: 1.0, fontWeight: FontWeight.bold, color: st.color));
+      ? Container(width: d * 0.16, height: d * 0.16, decoration: BoxDecoration(color: gold, shape: BoxShape.circle))
+      : Text(num, textDirection: TextDirection.ltr, style: TextStyle(fontSize: fsz, height: 1.0, fontWeight: FontWeight.w800, color: dark ? Color(0xFFF3E2B0) : deepGreen));
   return WidgetSpan(
     alignment: PlaceholderAlignment.middle,
     child: Padding(
       padding: EdgeInsets.symmetric(horizontal: 3),
-      child: Container(
-        width: w,
-        height: num == null ? d * 0.85 : d,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          shape: round ? BoxShape.circle : BoxShape.rectangle,
-          borderRadius: round ? null : BorderRadius.circular(d * 0.5),
-          color: gold.withOpacity(0.14),
-          border: Border.all(color: gold, width: 1.3),
-        ),
-        child: inner,
+      child: SizedBox(
+        width: d,
+        height: d,
+        child: CustomPaint(painter: _AyahStarPainter(dark), child: Center(child: inner)),
       ),
     ),
   );
 }
+
+// علامة نهاية الآية: نجمة ثمانية مزخرفة بتدرّج ذهبي، وبداخلها حلقة يحيط بها الرقم
+class _AyahStarPainter extends CustomPainter {
+  final bool dark;
+  const _AyahStarPainter(this.dark);
+  @override
+  void paint(Canvas canvas, Size size) {
+    final c = size.center(Offset.zero);
+    final r = size.width / 2 - 0.8;
+    final star = Path();
+    for (int i = 0; i < 16; i++) {
+      final ang = i * math.pi / 8 - math.pi / 2;
+      final rad = i.isEven ? r : r * 0.80;
+      final pt = Offset(c.dx + rad * math.cos(ang), c.dy + rad * math.sin(ang));
+      if (i == 0) {
+        star.moveTo(pt.dx, pt.dy);
+      } else {
+        star.lineTo(pt.dx, pt.dy);
+      }
+    }
+    star.close();
+    final rect = Rect.fromCircle(center: c, radius: r);
+    canvas.drawPath(
+      star,
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topRight,
+          end: Alignment.bottomLeft,
+          colors: dark ? [gold.withOpacity(0.42), gold.withOpacity(0.16)] : [Color(0xFFF6E7B8), Color(0xFFE9D08A)],
+        ).createShader(rect),
+    );
+    canvas.drawPath(star, Paint()..style = PaintingStyle.stroke..strokeWidth = 1.3..strokeJoin = StrokeJoin.round..color = gold);
+    canvas.drawCircle(c, r * 0.60, Paint()..style = PaintingStyle.fill..color = dark ? Color(0x66000000) : Color(0xE6FFFFFF));
+    canvas.drawCircle(c, r * 0.60, Paint()..style = PaintingStyle.stroke..strokeWidth = 1.0..color = gold.withOpacity(0.9));
+  }
+
+  @override
+  bool shouldRepaint(_AyahStarPainter old) => old.dark != dark;
+}
+
 
 // سطر واحد: الكلمات المميزة بلون مختلف (اللون فقط، دون تغيير العرض أو الوزن حتى لا يتأثر الضبط)
 Widget hiText(BuildContext context, String line, TextStyle st) {
