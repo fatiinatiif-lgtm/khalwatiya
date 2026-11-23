@@ -3023,20 +3023,8 @@ class _TextReaderPageState extends State<TextReaderPage> {
     final st = bodyStyle(context);
     final splits = body.map((b) => splitCount(b, all: widget.allCounts)).toList();
     _boxTargets = {for (int k = 0; k < body.length; k++) if (splits[k] != null) k: splits[k]!.target};
-    return Scaffold(
-      appBar: appBar,
-      body: Column(children: [ReadingTimerBar(title: widget.title), Expanded(child: _withAutoBar(Container(
-        decoration: bg,
-        child: Padding(
-          padding: EdgeInsets.all(10),
-          child: PageFrame(
-            child: Padding(
-            padding: EdgeInsets.symmetric(horizontal: 14),
-            child: ListView.builder(
-              controller: sc,
-              padding: EdgeInsets.only(top: 8, bottom: 16),
-              itemCount: body.length + 1 + (_autoByBoxes ? 0 : 1),
-              itemBuilder: (context, i) {
+    final int itemCount = body.length + 1 + (_autoByBoxes ? 0 : 1);
+    Widget buildItem(BuildContext context, int i) {
                 if (i == 0) {
                   return Padding(
                     padding: EdgeInsets.only(top: 6, bottom: 10),
@@ -3074,7 +3062,23 @@ class _TextReaderPageState extends State<TextReaderPage> {
                     Padding(padding: EdgeInsets.only(top: 4), child: KashidaParagraph(text: sp.rest, style: st)),
                   divider,
                 ]);
-              },
+              }
+    return Scaffold(
+      appBar: appBar,
+      body: Column(children: [ReadingTimerBar(title: widget.title), Expanded(child: _withAutoBar(Container(
+        decoration: bg,
+        child: Padding(
+          padding: EdgeInsets.all(10),
+          child: PageFrame(
+            child: Padding(
+            padding: EdgeInsets.symmetric(horizontal: 14),
+            child: SingleChildScrollView(
+              controller: sc,
+              padding: EdgeInsets.only(top: 8, bottom: 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [for (int i = 0; i < itemCount; i++) buildItem(context, i)],
+              ),
             ),
             ),
           ),
@@ -3084,7 +3088,7 @@ class _TextReaderPageState extends State<TextReaderPage> {
   }
 }
 
-// خط واقف على اليمين يبيّن كم باقي حتى ينتهي النص: الجزء المضيء هو الباقي ويقصر كلما قرأتِ
+// شريط واقف على اليمين يبيّن موضع القراءة بدقة: الجزء المضيء هو الباقي ويقصر كلما قرأتِ، والكبسولة عند موضع القراءة
 class _ReadProgressBar extends StatefulWidget {
   final ScrollController controller;
   final bool dark;
@@ -3100,10 +3104,12 @@ class _ReadProgressBarState extends State<_ReadProgressBar> {
   void initState() {
     super.initState();
     widget.controller.addListener(_onScroll);
-    // أبعاد التمرير لا تُعرف إلا بعد أول رسم للصفحة
-    Future.delayed(Duration(milliseconds: 350), () {
-      if (mounted) setState(() {});
-    });
+    // أبعاد التمرير لا تُعرف بدقة إلا بعد اكتمال رسم الصفحة (الخطوط والكشيدة)، فنعيد القياس عدة مرات
+    for (final ms in const [350, 900, 1800, 3200]) {
+      Future.delayed(Duration(milliseconds: ms), () {
+        if (mounted) setState(() {});
+      });
+    }
   }
 
   @override
@@ -3131,57 +3137,75 @@ class _ReadProgressBarState extends State<_ReadProgressBar> {
       final max = c.position.maxScrollExtent;
       if (max > 1) {
         can = true;
-        frac = (c.offset / max).clamp(0.0, 1.0).toDouble();
+        frac = (c.position.pixels / max).clamp(0.0, 1.0).toDouble();
       }
     }
     if (!can) return SizedBox.shrink();
     final dark = widget.dark;
-    const padV = 16.0, knob = 16.0, trackW = 6.0;
+    const padV = 24.0, trackW = 6.0, edge = 8.0, capW = 16.0, capH = 34.0;
     final goldLight = Color(0xFFF2DE9F);
+    final lit = dark ? Color(0xFF69F0AE) : green;
     return LayoutBuilder(builder: (context, bc) {
       final h = math.max(0.0, bc.maxHeight - 2 * padV);
       final y = padV + h * frac;
       return Stack(children: [
-        // المقروء: خط خافت
+        // علامات كل 10%
+        for (int k = 0; k <= 10; k++)
+          Positioned(
+            right: edge + trackW + 3,
+            top: padV + h * k / 10 - 0.5,
+            width: k % 5 == 0 ? 9 : 5,
+            height: 1,
+            child: DecoratedBox(decoration: BoxDecoration(color: gold.withOpacity(k % 5 == 0 ? 0.75 : 0.4))),
+          ),
+        // المسار
         Positioned(
-          right: 3,
+          right: edge,
           top: padV,
           bottom: padV,
           width: trackW,
           child: DecoratedBox(
             decoration: BoxDecoration(
-              color: (dark ? Colors.white : Colors.black).withOpacity(0.12),
-              borderRadius: BorderRadius.circular(3),
+              color: (dark ? Colors.white : Colors.black).withOpacity(0.10),
+              borderRadius: BorderRadius.circular(4),
               border: Border.all(color: gold.withOpacity(0.35), width: 0.6),
             ),
           ),
         ),
-        // الباقي: خط مضيء يقصر كلما تقدّمتِ
+        // المقروء: ذهبي هادئ
         Positioned(
-          right: 3,
+          right: edge,
+          top: padV,
+          height: math.max(0.0, y - padV),
+          width: trackW,
+          child: DecoratedBox(decoration: BoxDecoration(color: gold.withOpacity(0.55), borderRadius: BorderRadius.circular(4))),
+        ),
+        // الباقي: مضيء ويقصر كلما تقدّمتِ
+        Positioned(
+          right: edge,
           top: y,
           bottom: padV,
           width: trackW,
           child: DecoratedBox(
             decoration: BoxDecoration(
-              gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [dark ? Color(0xFF69F0AE) : green, gold]),
-              borderRadius: BorderRadius.circular(3),
-              boxShadow: [BoxShadow(color: (dark ? Color(0xFF00E676) : gold).withOpacity(0.55), blurRadius: 6)],
+              gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [lit, gold]),
+              borderRadius: BorderRadius.circular(4),
+              boxShadow: [BoxShadow(color: (dark ? Color(0xFF00E676) : gold).withOpacity(0.5), blurRadius: 6)],
             ),
           ),
         ),
-        // المؤشّر عند موضع القراءة
+        // الكبسولة: مركزها عند موضع القراءة تماماً
         Positioned(
-          right: 3 + trackW / 2 - knob / 2,
-          top: y - knob / 2,
-          width: knob,
-          height: knob,
+          right: edge + trackW / 2 - capW / 2,
+          top: y - capH / 2,
+          width: capW,
+          height: capH,
           child: DecoratedBox(
             decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: RadialGradient(colors: [Colors.white, goldLight, gold]),
-              border: Border.all(color: Colors.white, width: 1.4),
-              boxShadow: [BoxShadow(color: gold.withOpacity(0.8), blurRadius: 8, spreadRadius: 1)],
+              borderRadius: BorderRadius.circular(capW / 2),
+              gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [green, deepGreen]),
+              border: Border.all(color: goldLight, width: 1.3),
+              boxShadow: [BoxShadow(color: gold.withOpacity(0.7), blurRadius: 8, spreadRadius: 0.5)],
             ),
           ),
         ),
@@ -3236,10 +3260,19 @@ class BookIndexPage extends StatefulWidget {
 
 class _BookIndexPageState extends State<BookIndexPage> {
   late Future<List<IndexEntry>> entries;
+  final TextEditingController qc = TextEditingController();
+  String q = '';
+
   @override
   void initState() {
     super.initState();
     entries = loadIndex();
+  }
+
+  @override
+  void dispose() {
+    qc.dispose();
+    super.dispose();
   }
 
   Future<List<IndexEntry>> loadIndex() async {
@@ -3250,54 +3283,210 @@ class _BookIndexPageState extends State<BookIndexPage> {
     }).toList();
   }
 
+  void _openBook(int page) => Navigator.push(context, SoftRoute(builder: (_) => PdfReaderPage(initialPage: page)));
+
+  Widget _hero(BuildContext context, int n) {
+    final goldLight = Color(0xFFF2DE9F);
+    return Container(
+      margin: EdgeInsets.only(bottom: 14),
+      padding: EdgeInsets.fromLTRB(18, 18, 18, 16),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(24),
+        gradient: LinearGradient(begin: Alignment.topRight, end: Alignment.bottomLeft, colors: [deepGreen, green]),
+        border: Border.all(color: gold.withOpacity(0.75), width: 1.2),
+        boxShadow: [BoxShadow(color: green.withOpacity(0.35), blurRadius: 16, offset: Offset(0, 6))],
+      ),
+      child: Column(children: [
+        Row(children: [
+          Container(
+            width: 58,
+            height: 58,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: Colors.white.withOpacity(0.12),
+              border: Border.all(color: goldLight, width: 1.5),
+            ),
+            child: Icon(Icons.auto_stories_rounded, color: goldLight, size: 30),
+          ),
+          SizedBox(width: 14),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('فهرس كتاب الأوراد', style: TextStyle(color: Colors.white, fontSize: 21, height: 1.4, fontWeight: FontWeight.w800)),
+              SizedBox(height: 4),
+              Text('$n موضوعاً، اضغط على أي عنوان لتفتح صفحته مباشرة', style: TextStyle(color: Colors.white70, fontSize: 12.5, height: 1.5)),
+            ]),
+          ),
+        ]),
+        SizedBox(height: 14),
+        SizedBox(
+          width: double.infinity,
+          child: FilledButton.icon(
+            style: FilledButton.styleFrom(
+              backgroundColor: gold,
+              foregroundColor: Colors.black87,
+              padding: EdgeInsets.symmetric(vertical: 13),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+            ),
+            onPressed: () => _openBook(1),
+            icon: Icon(Icons.menu_book_rounded),
+            label: Text('فتح الكتاب من البداية', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+          ),
+        ),
+      ]),
+    );
+  }
+
+  Widget _search(BuildContext context) {
+    final dark = isDark(context);
+    OutlineInputBorder bd(Color c, double w) => OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: c, width: w));
+    return Padding(
+      padding: EdgeInsets.only(bottom: 14),
+      child: TextField(
+        controller: qc,
+        onChanged: (v) => setState(() => q = v),
+        textInputAction: TextInputAction.search,
+        decoration: InputDecoration(
+          hintText: 'ابحثي بعنوان الموضوع أو رقم الصفحة',
+          prefixIcon: Icon(Icons.search_rounded, color: gold),
+          suffixIcon: q.isEmpty
+              ? null
+              : IconButton(
+                  icon: Icon(Icons.close_rounded),
+                  onPressed: () {
+                    qc.clear();
+                    setState(() => q = '');
+                  },
+                ),
+          filled: true,
+          fillColor: dark ? Color(0x22FFFFFF) : Color(0xCCFFFFFF),
+          contentPadding: EdgeInsets.symmetric(vertical: 14, horizontal: 14),
+          border: bd(Color(0x55C6A75E), 1),
+          enabledBorder: bd(Color(0x55C6A75E), 1),
+          focusedBorder: bd(gold, 1.6),
+        ),
+      ),
+    );
+  }
+
+  Widget _pageBadge(BuildContext context, int page) {
+    final dark = isDark(context);
+    return Container(
+      width: 52,
+      height: 52,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: RadialGradient(colors: [dark ? darkTint(0.30) : Colors.white, softBg(context)]),
+        border: Border.all(color: gold, width: 1.4),
+        boxShadow: [BoxShadow(color: gold.withOpacity(0.28), blurRadius: 6)],
+      ),
+      child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+        Text('ص', style: TextStyle(fontSize: 9.5, height: 1.0, color: gold, fontWeight: FontWeight.w800)),
+        SizedBox(height: 3),
+        Text('$page', style: TextStyle(fontSize: 16, height: 1.0, fontWeight: FontWeight.w800, color: accent(context))),
+      ]),
+    );
+  }
+
+  Widget _entryCard(BuildContext context, IndexEntry e, bool isFav) {
+    final dark = isDark(context);
+    final heart = dark ? Color(0xFF3DDC84) : Color(0xFF1B9A55);
+    return Padding(
+      padding: EdgeInsets.only(bottom: 10),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(18),
+          onTap: () => _openBook(e.page),
+          child: Ink(
+            decoration: BoxDecoration(
+              color: dark ? Color(0x22FFFFFF) : Color(0xCCFFFFFF),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: Color(0x55C6A75E)),
+              boxShadow: [BoxShadow(color: Colors.black.withOpacity(dark ? 0.25 : 0.06), blurRadius: 8, offset: Offset(0, 3))],
+            ),
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(12, 10, 4, 10),
+              child: Row(children: [
+                Container(
+                  width: 4,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(2),
+                    gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [gold, green]),
+                  ),
+                ),
+                SizedBox(width: 10),
+                _pageBadge(context, e.page),
+                SizedBox(width: 12),
+                Expanded(
+                  child: Text(e.title, style: TextStyle(fontSize: 16.5, height: 1.55, fontWeight: FontWeight.w700, color: ink(context))),
+                ),
+                IconButton(
+                  tooltip: isFav ? 'إزالة من المفضلة' : 'إضافة إلى المفضلة',
+                  onPressed: () {
+                    HapticFeedback.selectionClick();
+                    toggleFavorite(e);
+                  },
+                  icon: AnimatedSwitcher(
+                    duration: Duration(milliseconds: 220),
+                    transitionBuilder: (c, a) => ScaleTransition(scale: a, child: c),
+                    child: Icon(isFav ? Icons.favorite_rounded : Icons.favorite_border_rounded, key: ValueKey(isFav), color: heart, size: 34),
+                  ),
+                ),
+              ]),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
-  Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: Text('فهرس كتاب أوراد الطريقة')),
-        body: FutureBuilder<List<IndexEntry>>(
+  Widget build(BuildContext context) {
+    final dark = isDark(context);
+    return Scaffold(
+      appBar: AppBar(title: Text('فهرس كتاب أوراد الطريقة')),
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: dark
+                ? [darkTint(0.06), darkTint(0.10)]
+                : [Color.alphaBlend(green.withOpacity(0.10), Color(0xFFF5EEDC)), Color.alphaBlend(green.withOpacity(0.05), Color(0xFFEFE5CC))],
+          ),
+        ),
+        child: FutureBuilder<List<IndexEntry>>(
           future: entries,
           builder: (context, snap) {
             if (!snap.hasData) return Center(child: CircularProgressIndicator());
             final data = snap.data!;
+            final nq = stripTashkeel(q.trim());
+            final list = nq.isEmpty ? data : data.where((e) => stripTashkeel(e.title).contains(nq) || '${e.page}' == nq).toList();
             return ValueListenableBuilder<List<String>>(
               valueListenable: favorites,
-              builder: (context, favs, _) => ListView.separated(
-                padding: EdgeInsets.all(12),
-                itemCount: data.length + 1,
-                separatorBuilder: (_, __) => Divider(height: 1),
+              builder: (context, favs, _) => ListView.builder(
+                padding: EdgeInsets.fromLTRB(14, 12, 14, 28),
+                itemCount: list.length + 2 + (list.isEmpty ? 1 : 0),
                 itemBuilder: (context, i) {
-                  if (i == 0) {
+                  if (i == 0) return _hero(context, data.length);
+                  if (i == 1) return _search(context);
+                  if (list.isEmpty) {
                     return Padding(
-                      padding: EdgeInsets.all(12),
-                      child: FilledButton.icon(
-                        style: FilledButton.styleFrom(backgroundColor: green),
-                        onPressed: () => Navigator.push(context, SoftRoute(builder: (_) => PdfReaderPage(initialPage: 1))),
-                        icon: Icon(Icons.menu_book),
-                        label: Text('فتح الكتاب من البداية'),
-                      ),
+                      padding: EdgeInsets.all(28),
+                      child: Text('لا توجد نتائج مطابقة', textAlign: TextAlign.center, style: TextStyle(fontSize: 17, color: ink(context).withOpacity(0.65))),
                     );
                   }
-                  final e = data[i - 1];
-                  final isFav = favs.contains('${e.title}|${e.page}');
-                  return ListTile(
-                    title: Text(e.title, style: TextStyle(fontWeight: FontWeight.w600)),
-                    leading: CircleAvatar(
-                      backgroundColor: softBg(context),
-                      foregroundColor: accent(context),
-                      child: Text('${e.page}', style: TextStyle(fontSize: 13)),
-                    ),
-                    trailing: IconButton(
-                      tooltip: 'إضافة إلى المفضلة',
-                      icon: Icon(isFav ? Icons.star_rounded : Icons.star_border_rounded, color: gold, size: 30),
-                      onPressed: () => toggleFavorite(e),
-                    ),
-                    onTap: () => Navigator.push(context, SoftRoute(builder: (_) => PdfReaderPage(initialPage: e.page))),
-                  );
+                  final e = list[i - 2];
+                  return _entryCard(context, e, favs.contains('${e.title}|${e.page}'));
                 },
               ),
             );
           },
         ),
-      );
+      ),
+    );
+  }
 }
 
 // قارئ PDF: تمرير رأسي مستمر، الصفحات صور عالية الجودة، بدون تكبير أو تصغير
@@ -3514,7 +3703,7 @@ class FavoritesPage extends StatelessWidget {
               return Center(
                 child: Padding(
                   padding: EdgeInsets.all(28),
-                  child: Text('اضغط على النجمة بجانب أي عنوان في الفهرس ليظهر هنا.',
+                  child: Text('اضغط على القلب بجانب أي عنوان في الفهرس ليظهر هنا.',
                       textAlign: TextAlign.center, style: TextStyle(fontSize: 18, height: 1.8)),
                 ),
               );
@@ -3530,7 +3719,7 @@ class FavoritesPage extends StatelessWidget {
                 return ListTile(
                   title: Text(title, style: TextStyle(fontWeight: FontWeight.w600)),
                   subtitle: Text('صفحة $page'),
-                  leading: Icon(Icons.star_rounded, color: gold),
+                  leading: Icon(Icons.favorite_rounded, color: isDark(context) ? Color(0xFF3DDC84) : Color(0xFF1B9A55), size: 30),
                   trailing: IconButton(icon: Icon(Icons.delete_outline), onPressed: () => toggleFavorite(IndexEntry(title, page))),
                   onTap: () => Navigator.push(context, SoftRoute(builder: (_) => PdfReaderPage(initialPage: page))),
                 );
